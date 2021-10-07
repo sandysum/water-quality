@@ -61,18 +61,6 @@ ni <-read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>%
 
 dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
 names(dww) <- names(dww) %>% str_remove_all("\\s")
-c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
-  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
-
-# read drought data from NOAA
-
-pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") 
-  
-cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
-
-```
-
-```{r echo = FALSE}
 ar_my <- ar %>% 
   # filter only to groundwater
   filter(WATER_TYPE=="G", year >= 1996) %>%
@@ -82,31 +70,49 @@ ar_my <- ar %>%
   summarise(median_ar = median(ar_ugl, na.rm = TRUE),
             # should I winsorize or not? Other people just check if you 
             mean_ar = mean(ar_ugl, na.rm = TRUE)) %>% 
-  ungroup()
+  ungroup()c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
+  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
+
+# read drought data from NOAA
+
+baseline <- readRDS("../../Data/ca_water_qual/ar_2006_levels.rds")
+
+# read in gridded drought data
+
+pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") %>% 
+  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
+         year = as.numeric(str_extract(my, "\\d{4}$")))
+  
+cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+
+```
+
+```{r echo = FALSE}
+
 
 # at this point probably gotta thing about dropping the pwss with only one observations
 
-ar_my %>%
-  ungroup() %>%
-  dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
-  mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>%
-  ggplot(aes(
-    date,
-    mean_ar,
-    color = factor(SYSTEM_NO),
-    shape = factor(raw)
-  )) +
-  geom_line() +
-  geom_point(aes(
-    date,
-    mean_ar,
-    color = factor(SYSTEM_NO),
-    shape = factor(raw)
-  ), size = 2) +
-  geom_vline(xintercept = lubridate::dmy('1-1-2006')) +
-  theme_minimal() +
-  scale_x_date(date_breaks = '6 months') +
-  theme(axis.text.x = element_text(angle = 45))
+# ar_my %>%
+#   ungroup() %>%
+#   dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
+#   mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>%
+#   ggplot(aes(
+#     date,
+#     mean_ar,
+#     color = factor(SYSTEM_NO),
+#     shape = factor(raw)
+#   )) +
+#   geom_line() +
+#   geom_point(aes(
+#     date,
+#     mean_ar,
+#     color = factor(SYSTEM_NO),
+#     shape = factor(raw)
+#   ), size = 2) +
+#   geom_vline(xintercept = lubridate::dmy('1-1-2006')) +
+#   theme_minimal() +
+#   scale_x_date(date_breaks = '6 months') +
+#   theme(axis.text.x = element_text(angle = 45))
 
 ar_my_drought <- ar_my %>% 
   ungroup() %>% 
@@ -115,63 +121,6 @@ ar_my_drought <- ar_my %>%
   mutate(mean_ar = Winsorize(mean_ar, na.rm = TRUE),
          mean_pdsi2 = (mean_pdsi^2)*sign(mean_pdsi),
          ar2006 = factor(ar2006, levels = c('low', 'med', 'high')))
-# visualize
-
-mod_a <-
-  felm(
-    median_ar ~ pdsi |
-      month + countyName |
-      # ughhhh if I remove year fixed effect it's very very significan
-      # year + month + countyName + in_cv |
-      0 | countyName + year,
-    data = ar_my_drought %>% filter(raw == 0)
-  )
-
-
-mod_a2 <-
-  felm(
-    median_ar ~ pdsi + pdsi2 |
-      month + countyName |
-      # ughhhh if I remove year fixed effect it's very very significan
-      # year + month + countyName + in_cv |
-      0 | countyName + year,
-    data = ar_my_drought %>% filter(raw == 1)
-  )
-# oh gosh, I am so dejected, there is nothing here at all
-
-ni_my <- ni %>% 
-  filter(!is.na(countyName), WATER_TYPE == "G") %>% 
-  mutate(month = month(sampleDate)) %>% 
-  group_by(countyName, year, month, raw) %>%
-  summarise(median_ni = median(n_mgl, na.rm = TRUE),
-            mean_ni = mean(n_mgl, na.rm = TRUE)) 
-
-ni_my_drought <- ni_my %>% 
-  mutate(countyName = str_to_lower(countyName)) %>% 
-  left_join(climdiv_cw, by = c('countyName' = 'NAME')) %>% 
-  mutate(climdiv = as.integer(climdiv_assigned),
-         in_cv = factor(countyName%in%cv_counties)) %>% 
-  left_join(pdsi, by = c("year", "month", "climdiv")) %>% 
-  mutate(pdsi2 = (pdsi^2)*sign(pdsi))
-
-# visualize
-# 
-# ni_my_drought %>% 
-#   filter(countyName == "tulare", raw == 1) %>% 
-#   ggplot(aes(date, median_ni)) +
-#   geom_line() +
-#   geom_line(aes(date, pdsi), color = 'blue') +
-#   theme_minimal_hgrid() +
-#   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-
-mod_n <-
-  felm(
-    mean_ni ~ pdsi |
-      month + countyName |
-      0 | countyName + year,
-    data = ni_my_drought %>% filter(raw == 1)
-  )
 ```
 
 
@@ -215,14 +164,6 @@ $$Ar_{it} = \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot WellDepth_i + \hat 
   
 I think that 2 is way more doable now but I am interested and excited by 1 too. For my "second year" paper I may just do a county level comparison by comparing rates of various cancers and identifying counties that are served by a single PWSs. County level health data is currently accessible. If I find results, that would justify and strengthen my application for data from the CDPH.
 
-```{r,results='asis'}
-broom::tidy(mod_a) %>% kable()
-```
-
-```{r,results='asis'}
-broom::tidy(mod_a2) %>% kable()
-```
-
 **Median Arsenic level (in raw sources) and PDSI (blue) for Tulare/Madera county**
 
 ```{r echo = FALSE, fig.height= 4}
@@ -244,6 +185,12 @@ ar_my_drought %>%
   lims(y = c(-10, 75)) +
   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+```
+
+# Missing Data Analysis
+
+```{r}
+
 ```
 
 

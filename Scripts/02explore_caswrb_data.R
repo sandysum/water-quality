@@ -53,18 +53,23 @@ baseline <- readRDS("../Data/ca_water_qual/ar_2006_levels.rds")
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-         year = as.numeric(str_extract(my, "\\d{4}$")))
+         year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
+  group_by(SABL_PWSID, year) %>% 
+  dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
 
 # sanity check
-pdsi %>% group_by(month, year) %>% 
-  summarise(pdsi = mean(mean_pdsi, na.rm = TRUE)) %>% 
-  mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>% 
-  ggplot(aes(x = date, y = pdsi)) +
-  geom_line() +
+# can see reassuring patterns of drought that are congruent with historical california drought.
+set.seed(1028928)
+q <- sample(pdsi$SABL_PWSID, 6)
+pdsi %>% 
+  filter(SABL_PWSID %in% q) %>% 
+  ggplot(aes(x = year, y = mean_pdsi)) +
+  geom_line(aes(color = SABL_PWSID)) +
   theme_light() +
+  scale_x_continuous(breaks = seq(1980, 2022, 2)) +
   geom_hline(yintercept = 0, color = 'red') +
-  scale_x_date(date_breaks = '1 year', date_labels = '%Y') +
-  theme(axis.text.x = element_text(angle = 45))
+  theme(axis.text.x = element_text(angle = 45)) +
+  scale_color_brewer(palette = "Greens")
   
 # climdiv_cw <- read_csv("../Data/drought/ca_climdiv_crosswalk.csv") 
 #   
@@ -145,44 +150,73 @@ ni %>%
 
 # Exploring Arsenic, Running Regressions -------------------------------------------------
 
-ar_my <- ar %>% 
+ar_pws_y_raw_gw <- ar %>%
   # filter only to groundwater
-  filter(WATER_TYPE=="G", year >= 1996) %>%
-  mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
-  group_by(SYSTEM_NO, countyName, cv, year, month, raw) %>%
-  summarise(median_ar = median(ar_ugl, na.rm = TRUE),
-            # should I winsorize or not? Other people just check if you 
-            mean_ar = mean(ar_ugl, na.rm = TRUE)) %>% 
+  filter(WATER_TYPE == "G", raw == 1) %>%
+  mutate(cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    countyName,
+    cv,
+    year,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(median_ar = Winsorize(median(ar_ugl, na.rm = TRUE), probs = c(0, 0.99)),
+                   mean_ar = mean(ar_ugl, na.rm = TRUE)) %>%
   ungroup()
 
 # at this point probably gotta thing about dropping the pwss with only one observations
-
-ar_my %>%
-  ungroup() %>%
+# I feel pretty good that a lot has annual readings
+set.seed(64679)
+ar_pws_y_raw_gw %>%
   dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
-  mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>%
   ggplot(aes(
-    date,
+    year,
     mean_ar,
-    color = factor(SYSTEM_NO),
-    shape = factor(raw)
+    color = factor(SYSTEM_NO)
   )) +
   geom_line() +
   geom_point(aes(
-    date,
+    year,
     mean_ar,
     color = factor(SYSTEM_NO),
-    shape = factor(raw)
   ), size = 2) +
-  geom_vline(xintercept = lubridate::dmy('1-1-2006')) +
-  theme_minimal() +
-  scale_x_date(date_breaks = '6 months') +
-  theme(axis.text.x = element_text(angle = 45))
+  geom_vline(xintercept = 2006) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1980:2022) +
+  scale_color_brewer(palette = 'Dark2') +
+  theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = .9))
 
-ar_my_drought <- ar_my %>% 
+# yellow got triggered into annual readings
+
+ar_pws_y_raw_gw_freq <- ar_pws_y_raw_gw %>%
+  group_by(SYSTEM_NO) %>%
+  dplyr::summarise(
+    freq = n(),
+    mean_ar = mean(mean_ar, na.rm = TRUE),
+    min_year = min(year, na.rm = TRUE),
+    max_year = max(year, na.rm = TRUE),
+    County = countyName[1],
+    Population = POP_SERV[1],
+  ) %>%
+  arrange(freq)
+
+# filter to those with annual readings from 2008-2010?
+
+ar_pws_y_raw_gw_sub <- ar_pws_y_raw_gw %>%
+  filter()
+
+ar_drought <- ar_pws_y_raw_gw %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "month", "SYSTEM_NO")) %>% 
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
   left_join(baseline) %>% 
   mutate(mean_ar = Winsorize(mean_ar, na.rm = TRUE),
          mean_pdsi2 = (mean_pdsi^2)*sign(mean_pdsi),
@@ -191,49 +225,22 @@ ar_my_drought <- ar_my %>%
 # run regressions
 
 mod <-
-  felm(mean_ar ~ mean_pdsi | 0 | 0 | countyName + month,
-       data = ar_my_drought %>% filter(raw == 1)
-       )
+  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | 0,
+       data = ar_drought)
 
 summary(mod)
 
 mod1 <-
-  felm(mean_ar ~ mean_pdsi | countyName | 0 | countyName + month,
-       data = ar_my_drought %>% filter(raw == 1)
+  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | countyName + year,
+       data = ar_drought
   )
 
 summary(mod1)
 
 mod2 <-
-  felm(mean_ar ~ mean_pdsi | countyName + year | 0 | countyName + month,
-       data = ar_my_drought %>% filter(raw == 1)
-  )
+  felm(mean_ar ~ mean_pdsi + mean_pdsi:ar2006 | ar2006 | 0 | 0 , data = ar_drought)
 
 summary(mod2)
-
-mod3 <-
-  felm(mean_ar ~ mean_pdsi | countyName + month | 0 | countyName + month,
-       data = ar_my_drought %>% filter(raw == 1)
-  )
-
-summary(mod3)
-
-mod3 <-
-  felm(
-    mean_ar ~ mean_pdsi + cv + mean_pdsi:cv | 0 | 0 | countyName + month,
-    data = ar_my_drought %>% filter(raw == 1)
-  )
-
-summary(mod3)
-
-mod4 <-
-  felm(
-    mean_ar ~ mean_pdsi + ar2006 + mean_pdsi:ar2006 |
-      countyName + month | 0 | countyName + month,
-    data = ar_my_drought %>% filter(raw == 1)
-  )
-
-summary(mod4)
 
 # mod5 <-
 #   felm(
