@@ -1,0 +1,629 @@
+---
+title: "CA SWRB monitoring and compliance data"
+author: "Sandy Sum"
+date: '`r Sys.Date()`'
+output: 
+html_document:
+  theme: cosmo
+  toc: true
+  number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(error = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(fig.align = "center")
+library(sp)
+library(cowplot)
+library(tidyverse)
+library(readr)
+library(readxl)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(kableExtra)
+library(tigris)
+library(DescTools)
+library(Hmisc)
+library(lfe)
+library(xtable)
+home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+```
+
+```{r echo = FALSE}
+sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
+loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
+  mutate(STATUS = str_to_upper(STATUS))
+# read arsenic and nitrate data from the CA SWRB portal 
+# read arsenic and nitrate data from the CA SWRB portal 
+# read arsenic and nitrate data from the CA SWRB portal 
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1998-2021.rds")) %>% 
+  # drop destroyed and wastewater wells
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+         sampleDate = as_date(sampleDate),
+         # raw, untreated, monitoring well, and agriculture well considered raw
+         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+         countyName = str_to_lower(countyName))
+
+ni <-read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>% 
+  # drop destroyed and wastewater wells
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+         sampleDate = as_date(sampleDate),
+         # raw, untreated, monitoring well, and agriculture well considered raw
+         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+         countyName = str_to_lower(countyName))
+
+dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
+names(dww) <- names(dww) %>% str_remove_all("\\s")
+c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
+  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
+
+# read drought data from NOAA
+
+pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") 
+  
+cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+
+```
+
+```{r echo = FALSE}
+ar_my <- ar %>% 
+  # filter only to groundwater
+  filter(WATER_TYPE=="G", year >= 1996) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
+  group_by(SYSTEM_NO, countyName, cv, year, month, raw) %>%
+  summarise(median_ar = median(ar_ugl, na.rm = TRUE),
+            # should I winsorize or not? Other people just check if you 
+            mean_ar = mean(ar_ugl, na.rm = TRUE)) %>% 
+  ungroup()
+
+# at this point probably gotta thing about dropping the pwss with only one observations
+
+ar_my %>%
+  ungroup() %>%
+  dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
+  mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>%
+  ggplot(aes(
+    date,
+    mean_ar,
+    color = factor(SYSTEM_NO),
+    shape = factor(raw)
+  )) +
+  geom_line() +
+  geom_point(aes(
+    date,
+    mean_ar,
+    color = factor(SYSTEM_NO),
+    shape = factor(raw)
+  ), size = 2) +
+  geom_vline(xintercept = lubridate::dmy('1-1-2006')) +
+  theme_minimal() +
+  scale_x_date(date_breaks = '6 months') +
+  theme(axis.text.x = element_text(angle = 45))
+
+ar_my_drought <- ar_my %>% 
+  ungroup() %>% 
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "month", "SYSTEM_NO")) %>% 
+  left_join(baseline) %>% 
+  mutate(mean_ar = Winsorize(mean_ar, na.rm = TRUE),
+         mean_pdsi2 = (mean_pdsi^2)*sign(mean_pdsi),
+         ar2006 = factor(ar2006, levels = c('low', 'med', 'high')))
+# visualize
+
+mod_a <-
+  felm(
+    median_ar ~ pdsi |
+      month + countyName |
+      # ughhhh if I remove year fixed effect it's very very significan
+      # year + month + countyName + in_cv |
+      0 | countyName + year,
+    data = ar_my_drought %>% filter(raw == 0)
+  )
+
+
+mod_a2 <-
+  felm(
+    median_ar ~ pdsi + pdsi2 |
+      month + countyName |
+      # ughhhh if I remove year fixed effect it's very very significan
+      # year + month + countyName + in_cv |
+      0 | countyName + year,
+    data = ar_my_drought %>% filter(raw == 1)
+  )
+# oh gosh, I am so dejected, there is nothing here at all
+
+ni_my <- ni %>% 
+  filter(!is.na(countyName), WATER_TYPE == "G") %>% 
+  mutate(month = month(sampleDate)) %>% 
+  group_by(countyName, year, month, raw) %>%
+  summarise(median_ni = median(n_mgl, na.rm = TRUE),
+            mean_ni = mean(n_mgl, na.rm = TRUE)) 
+
+ni_my_drought <- ni_my %>% 
+  mutate(countyName = str_to_lower(countyName)) %>% 
+  left_join(climdiv_cw, by = c('countyName' = 'NAME')) %>% 
+  mutate(climdiv = as.integer(climdiv_assigned),
+         in_cv = factor(countyName%in%cv_counties)) %>% 
+  left_join(pdsi, by = c("year", "month", "climdiv")) %>% 
+  mutate(pdsi2 = (pdsi^2)*sign(pdsi))
+
+# visualize
+# 
+# ni_my_drought %>% 
+#   filter(countyName == "tulare", raw == 1) %>% 
+#   ggplot(aes(date, median_ni)) +
+#   geom_line() +
+#   geom_line(aes(date, pdsi), color = 'blue') +
+#   theme_minimal_hgrid() +
+#   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+
+mod_n <-
+  felm(
+    mean_ni ~ pdsi |
+      month + countyName |
+      0 | countyName + year,
+    data = ni_my_drought %>% filter(raw == 1)
+  )
+```
+
+
+# Contaminants {.tabset}
+
+## Nitrate
+
+Estimate PWS wells nitrate levels interacted with land use and groundwater level. Does groundwater pollution move laterally underground? If so that means that the groundwater drawdown is non-excludable and non-rivarous and hence a form of unseen pollution that is exercabated by drought.
+
+$$\begin{align*} N_{it} = \; & \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot LandUse_i\cdot GW_{it}  \\ & + \hat \beta_2 Drought_{t}\cdot LandUse_i + \beta_3LandUse_i\cdot GW_{it} 
+ \\ & + \beta_4 Drought_{t}\cdot GW_{it} + \mathbf{x}_{it} \hat \gamma + \hat f_i(t) + \hat \epsilon_i\end{align*}$$
+ 
+where $\hat \alpha_{i}$ are unit-speciﬁc ﬁxed effects that absorb the effect of all time-invariant factors that differ between units, including unobservables that could not be accounted for in the cross-sectional research design. $\hat f_i(t)$ are trends in the outcome data, often accounted for using period ﬁxed-effects and/or linear or polynomial time trends, which may be region- or unit-speciﬁc. $Drought_i$ is some measure of the extend of drought, $GW_{it}$ is groundwater drawdown, a measure of human adaptive behavior. 
+
+```{r,results='asis'}
+broom::tidy(mod_n) %>% kable()
+```
+
+Now, I need to think about this equation more. But should $Drought$ be also a unit/region varying factor? I think it should be due to the paper I just ready by Levy et al (2021) form USGS.
+
+Also thinking of aggregating each unit to a hexagonal grid patter a la Levy et al. For this I have to contact Xander on spatial dynamics of groundwater pollution.
+
+```{r hex, echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '50%'}
+knitr::include_graphics("../../PresentationMaterial/hexagonal_grid.png")
+```
+
+## Arsenic
+
+At this point I am thinking of two different chapters on water quality if time and data quality and access can allow it.
+
+1. Arsenic and Public Health leveraging the Final Arsenic Rule (FAR) passed in 2001, enforced in 2006
+  - Comparing health outcomes in communities served by enforced PWSs vs communities served by private wells
+  - Comparing communities served by PWSs who complied with 2001 FAR with *similar* communities who were lucky to have low Ar levels from the start (fall in cancer rates?)
+  - Comparing communities served by PWSs who **did not** comply with with *similar* communities who were lucky to have low Ar levels from the start (relative rise in cancer rates?) Cannot compare to those who comply because they may be different.
+  
+2. Arsenic and Drought
+
+$$Ar_{it} = \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot WellDepth_i + \hat \beta_2 Drought_{t} + \mathbf{x}_{it} + \hat f_i(t) + \hat \epsilon_i$$
+
+  - Some kind of event study on raw/untreated well data and drought measure
+  
+I think that 2 is way more doable now but I am interested and excited by 1 too. For my "second year" paper I may just do a county level comparison by comparing rates of various cancers and identifying counties that are served by a single PWSs. County level health data is currently accessible. If I find results, that would justify and strengthen my application for data from the CDPH.
+
+```{r,results='asis'}
+broom::tidy(mod_a) %>% kable()
+```
+
+```{r,results='asis'}
+broom::tidy(mod_a2) %>% kable()
+```
+
+**Median Arsenic level (in raw sources) and PDSI (blue) for Tulare/Madera county**
+
+```{r echo = FALSE, fig.height= 4}
+ar_my_drought %>% 
+  filter(countyName == "tulare", raw == 1) %>% 
+  ggplot(aes(date, median_ar)) +
+  geom_line() +
+  geom_line(aes(date, pdsi), color = 'blue') +
+  theme_minimal_hgrid() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+
+ar_my_drought %>% 
+  filter(countyName == "madera", raw == 1) %>% 
+  ggplot(aes(date, median_ar)) +
+  geom_line() +
+  geom_line(aes(date, pdsi), color = 'blue') +
+  theme_minimal_hgrid() +
+  lims(y = c(-10, 75)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+```
+
+
+# Datasets and Notes
+
+### EPA Six-Year Review Monitoring and Compliance Data
+
+- 1998-2005; 2006-2011
+- Super set of the following
+
+### CA SWRB Drinking Water Quality Data
+
+- 1974-2021
+- unbalanced
+
+### EPA Enforcement and Compliance History Data for the Safe Water Drinking Act
+
+The Safe Drinking Water Information System (SDWIS) contains information on public water systems from the Public Water System Supervision (PWSS) Program, including monitoring, enforcement, and violation data related to requirements established by the Safe Drinking Water Act (SDWA).
+
+### PDSI Palmer's Drought Hydrological Data
+
+```{r counties, echo=FALSE, fig.align="center", fig.cap="CLimate division to counties", out.width = '100%'}
+knitr::include_graphics("../climdiv_counties.jpeg")
+```
+
+### CA CA Drinking Water System Area Boundaries
+
+Obtained via email
+
+Please be advised that this copy of the System Area Boundary Layer data is a snapshot of the CA drinking water system area boundaries provided to the State Board by individual water systems. A water system may have provided accurate, up-to-date boundaries, or may have provided boundaries that are only approximate. This layer does not contain all Public Water System boundaries. The dataset is in the process of being reviewed and verified. In addition, new boundaries are being added. Please note that these definitions are NOT a legal definition and should NOT be used to settle boundary disputes. Because the Water Board is targeting different information, there is no conflict with other authoritative agencies' definitions.
+
+### USGS NWIS water monitoring data
+
+- 1995-2020
+- Small dataset and geographical coverage
+
+# Compliance, Reporting, and Enforcement Rules
+
+## Standardized Monitoring Framework
+
+**Legend for the SMF Tables**
+
+\* = 1 sample at each entry point to distribution system (EPTDS).
+
+\*\* = 2 quarterly samples at each EPTDS. Samples must be taken during 1 calendar year during each 3-year compliance period.
+
+\*\*\*\* = 4 quarterly samples at each EPTDS within time frame designated by the primacy agency.
+
+X = No sample required unless specified by primacy agency. However, waivers must be renewed at the frequency shown and system must demonstrate that the sources are not vulnerable.
+
+\# = Systems must monitor at a frequency specified by the primacy agency. Detect = Federally defined detection limit.
+
+```{r pressure, echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '100%'}
+knitr::include_graphics("../../PresentationMaterial/dw_smf.png")
+```
+
+(SMF) for inorganic contaminants (40CFR141.23) - the same rule applies to inorganic Nitrate $NO_3$.
+
+- At each entry point of the distribution system 
+  - *Entry Point to the Distribution System*: is where any source or treated water enters the system of pipes or other fixtures used to provide drinking water to persons served by the public water system
+- Ground water systems – one sample every three years - must complete sampling by
+December 31, 2007
+- Surface water systems – one sample every year - must complete sampling by December 31, 2006
+- Repeated values may mean for each entry point
+- If a system is collecting samples more than once a year (i.e., quarterly or more), then compliance with the MCL is determined by calculating a Running Annual Average (RAA).
+- If a system is collecting samples more than once a year (i.e., quarterly or more), then compliance with the MCL is determined by calculating a Running Annual Average
+(RAA).
+- Although it is not clearly stated in the rule, it is EPA’s position that systems
+triggered into increased monitoring will not be considered in violation of the MCL
+until they have completed one year of quarterly sampling. However, if any sample
+result causes the RAA to exceed the MCL at any sampling point (e.g., the sampling
+result is four times the MCL), the system is out of compliance with the MCL
+immediately.
+
+<!-- ## Arsenic and Drought (NWIS data - only measure of well depth and age) -->
+
+<!-- $$Ar_{it} = \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot WellDepth_i + \hat \beta_2 Drought_{t} + \mathbf{x}_{it} + \hat \theta_t + \hat \epsilon_i$$ -->
+
+<!-- #### Well depth (m) and mean Ar relationship -->
+
+<!-- ```{r, fig.align="center", fig.width=5, fig.height=3} -->
+<!-- station_med <- arnwis %>% -->
+<!--   group_by(locationId, lat, lon) %>% -->
+<!--   summarise( -->
+<!--     well_depth = mean(wellDepth_m, na.rm = TRUE), -->
+<!--     age = mean((2021 - constructionDateYr), na.rm = TRUE), -->
+<!--     mean_ar_ugl_win = Winsorize(mean(value_ugL, na.rm = TRUE), maxval = 100), -->
+<!--     mean_ar_ugl = mean(value_ugL, na.rm = TRUE), -->
+<!--     max_ar_ugl = max(value_ugL, na.rm = TRUE) -->
+<!--   ) -->
+
+<!-- ggplot(station_med, aes(well_depth, mean_ar_ugl)) + -->
+<!--   geom_point() + -->
+<!--   theme_minimal() -->
+<!-- ``` -->
+
+<!-- #### Well age and mean Ar relationship -->
+
+<!-- ```{r, fig.align="center", fig.width=5, fig.height=3} -->
+<!-- station_med <- arnwis %>% -->
+<!--   group_by(locationId, lat, lon) %>% -->
+<!--   summarise( -->
+<!--     well_depth = mean(wellDepth_m, na.rm = TRUE), -->
+<!--     age = mean((2021 - constructionDateYr), na.rm = TRUE), -->
+<!--     mean_ar_ugl_win = Winsorize(mean(value_ugL, na.rm = TRUE), maxval = 100), -->
+<!--     mean_ar_ugl = mean(value_ugL, na.rm = TRUE), -->
+<!--     max_ar_ugl = max(value_ugL, na.rm = TRUE) -->
+<!--   ) -->
+
+<!-- ggplot(station_med, aes(well_depth, mean_ar_ugl)) + -->
+<!--   geom_point() + -->
+<!--   theme_minimal() -->
+<!-- ``` -->
+
+<!-- #### Distribution of deep wells in CA -->
+
+<!-- ```{r include = FALSE} -->
+<!-- station <- readRDS("../Data/1int/nwis_station.rds") -->
+<!-- ca <- counties("California", cb = TRUE) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- ggplot() +  -->
+<!--   geom_sf(data = ca, color="black", -->
+<!--                    fill="white", size=0.25) + -->
+<!--   geom_point( -->
+<!--     data = station, -->
+<!--     aes(x = lon, y = lat, color = wellDepth_m), -->
+<!--     size = 1, -->
+<!--     alpha = .5 -->
+<!--   ) + -->
+<!--   scico::scale_color_scico(palette = "berlin") + theme_minimal() -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- arnwis_reg <- arnwis %>% mutate(well_age = 2021-constructionDateYr) %>%  -->
+<!--   group_by(locationId, lat, lon, year, well_age, wellDepth_m, AquiferName) %>%  -->
+<!--   summarise(mean_ar = mean(value_ugL, na.rm = TRUE)) %>%  -->
+<!--   # ungroup() %>%  -->
+<!--   left_join(drought %>% mutate(year = str_extract(MapDate,'\\d{4}') %>% as.numeric()) %>%  -->
+<!--               group_by(year) %>%  -->
+<!--               summarise(drought_index = mean(DSCI))) %>%  -->
+<!--   mutate(well_age = factor(well_age),  -->
+<!--          AquiferName = factor(AquiferName)) -->
+
+<!-- # mod <- felm(mean_ar ~ drought_index + wellDepth_m + year + locationId | 0 |0|0, data = arnwis_reg) -->
+
+<!-- ``` -->
+
+## The 2001 Final Arsenic Rule (FAR)
+
+### General Description
+
+Changes the arsenic MCL from 50 µg/L to 10 µg/L; Sets arsenic MCLG at 0; Requires monitoring for new systems and new drinking water sources; Clarifies the procedures for determining compliance with the MCLs for IOCs, SOCs, and VOCs.
+
+### Timeline
+
+The new Arsenic Rule applies to all community water systems (CWSs) and nontransient non-community water systems (NTNCWSs).
+
+- By, January 22, 2004, all NEW systems/sources must collect initial monitoring samples for all IOCs, SOCs, and VOCs within a period and frequency determined by the State
+- The MCL will remain at 50 ug/L until January 22, 2006
+- On January 23, 2006, the revised MCL of 10 ug/L becomes enforceable, and all systems must begin monitoring or submit data that meets grandfathering requirements
+- On December 31, 2006 Surface water systems must complete initial monitoring or have a State approved waiver.
+- On December 31, 2007 Ground water systems must complete initial monitoring or have a State approved waiver
+
+### Monitoring Requirements for Total Arsenic (1)
+
+1. **Initial Monitoring**
+One sample after the effective date of the MCL (January 23, 2006). Surface water systems must take annual samples. Ground water systems must take one sample between 2005 and 2007.
+2. **Reduced Monitoring**
+If the initial monitoring result for arsenic is less than the MCL:
+  + Ground water systems must collect one sample every 3 years.
+  + Surface water systems must collect annual samples.
+3. **Increased Monitoring**
+A system with a sampling point result above the MCL must collect quarterly samples at that sampling point, until the system is reliably and consistently below the MCL.
+
+*(1) All samples must be collected at each entry point to the distribution system, unless otherwise specified by the State.*
+
+## Some thoughts regarding leveraging the FAR
+
+- This means that the rule applies to communities served by CWSs and NTNCWSs and not communities served by private wells
+- The rule is only binding for CWSs who are experiencing Arsenic level $>10 \;ug/L$ in 2001, who likely had to upgrade their treatment systems
+  - EPA estimates that 3,024 CWSs and 1,080 NTNCWSs will have to install treatment to comply with the revised MCL
+- This rule is non-binding for CWSs who are not in the Arsenic "hot spot" which could be correlated to CWSs that has a portfolio of mainly surface water
+- Identify CWSs that were non-binding at 2001 or prior to policy enforcement at 2006
+
+# CWSs and monitoring in California
+
+Each PWS (in dataset `sys`) has many monitoring locations denoted by their sampling point ID (in dataset `loc`). These monitoring locations can be anywhere in the system and are denoted in the dataset by their status number.
+
+```{r echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '60%'}
+knitr::include_graphics("../../PresentationMaterial/dw_sys_ex.png")
+```
+
+- Abandoned – AB
+A source which is no longer being used, with no intention of being used in the future, and which is not destroyed.
+
+- Destroyed – DS
+A source which is filled and capped with no possibility of being used in the future.
+
+- Inactive Raw – IR
+A source which is not in service for periods of one year or greater and which provides raw water which is sampled before any treatment.
+
+- Inactive Treated – IT
+A source which is not in service for periods of one year or greater and which provides treated water to a system.
+
+- Inactive Untreated – IU
+A source which is not in service for periods of one year or greater and which provides raw water to a system without any treatment.
+
+- Standby Raw – SR
+A source which is used less than 15 calendar days per year, with periods not to exceed five consecutive days and which provides raw water which is sampled before any treatment.
+
+- Standby Treated – ST
+A source which is used less than 15 calendar days per year, with periods not to exceed five consecutive days and which provides raw water which is sampled after treatment.
+
+- Standby Untreated – SU
+A source which is used less than 15 calendar days per year, with periods not to exceed five consecutive days and which provides raw water without any treatment.
+
+- Active Raw – AR
+An active source which is sampled before any treatment.
+
+- Active Treated – AT
+An active source which is sampled after any treatment.
+
+- Active Untreated – AU
+An active source which is not treated.
+
+- Monitoring – MW
+A source, which is not a drinking water source and which is utilized only for monitoring water quality.
+
+- Agricultural/Irrigation Well – AG
+Not a drinking water well; utilized only for agriculture.
+
+- Distribution system sample point, Treated – DT
+Sample point within the distribution system after treatment.
+
+- Distribution system sample point, Raw – DR
+Sample point within the distribution system before treatment.
+
+- Combined Treated - CT
+Combined sources which are treated.
+
+- Combined Untreated - CU
+Combined sources which are not treated.
+
+- Combined Raw - CR
+Combined raw sources.
+
+- Combined Mixed - CM
+Combined sources.
+
+- Pending – PN
+Source not yet established.
+
+- Purchased Raw – PR
+Purchased source water which is sampled before any treatment.
+
+- Purchased Treated – PT
+Purchased source water which is sampled after any treatment.
+
+- Purchased Untreated - PU
+Purchased source water which is not treated.
+
+- Waste Water – WW
+Not for drinking 
+
+There are a lot more systems in the CA SWRB data than in the file from the CA open data portal
+
+<!-- ## Looking at plausibly drinking water trends -->
+
+<!-- How to identify drinking water from untreated water? -->
+
+<!-- For this I filtered to `STATUS %in% c("CT", "AT", "DT")`. To be more conservative I should have just looked at `DT` but that has very little data. -->
+
+<!-- ```{r echo = TRUE} -->
+<!-- kable(table(ar$STATUS), format = "html") -->
+<!-- ``` -->
+
+<!-- Looking at density of monitoring measures before and after the enforcement of the policy. Just a lot more observations after the policy in 2001.  -->
+
+<!-- Need to run event study regression in R. -->
+
+<!-- ```{r fig.align="center", fig.width=6, fig.height=4} -->
+<!-- ar_pre_post <- ar %>% filter(STATUS %in% c("CT", "AT", "DT")) %>%  -->
+<!--   mutate(pre_post_enforcement = case_when( -->
+<!--     year < 2001 ~ "pre", -->
+<!--     year > 2006 ~ "post", -->
+<!--     TRUE ~ "transition" -->
+<!--   )) %>%  -->
+<!--   mutate(ar_ugl_win50 = Winsorize(ar_ugl, maxval = 50)) -->
+
+<!-- ggplot(ar_pre_post, aes(x=ar_ugl_win50, fill=pre_post_enforcement)) + -->
+<!--   # geom_density(alpha = .6) + -->
+<!--   geom_histogram(alpha=0.55, bins = 50) + -->
+<!--   geom_vline(xintercept = 10, color = "red") + -->
+<!--   theme_minimal() -->
+<!-- ``` -->
+
+<!-- ## Firebaugh City  -->
+
+<!-- Let's look at the time series of a single system/PWSID, serving 7,619 people that mainly sources from groundwater.  -->
+
+<!-- ```{r, results='asis'} -->
+<!-- #1010005-010 -->
+<!-- ar %>%  -->
+<!--   filter(SYSTEM_NO == "1010005") %>%  -->
+<!--   group_by(samplePointID, STATUS, STATION_TY) %>%  -->
+<!--   summarise(n_obs_each_pt = n()) %>%   -->
+<!--   kable(format = "html") -->
+<!-- ``` -->
+
+<!-- We can keep just the `CT` and `AR` -->
+
+<!-- ```{r fig.align="center", fig.width=10, fig.height=5} -->
+<!-- #1010005-010 -->
+<!-- ar %>%  -->
+<!--   filter(SYSTEM_NO == "1010005", STATUS %in% c('CT', 'AR')) %>%  -->
+<!--   ggplot(aes(sampleDate, ar_ugl, color = samplePointID)) + -->
+<!--   geom_point() + -->
+<!--   geom_hline(yintercept = 10, color = 'red') + -->
+<!--   geom_vline(xintercept = dmy('23012006'), color = "blue") + -->
+<!--   geom_smooth() + -->
+<!--   theme_minimal() + -->
+<!--   facet_grid(cols = vars(STATUS)) + -->
+<!--   scale_color_brewer(palette = "Dark2") + -->
+<!--   scale_x_date(date_breaks = '1 year', date_labels = "%Y") + -->
+<!--   theme(axis.text.x = element_text(angle = 45), legend.position = 'top') -->
+<!-- ``` -->
+
+
+<!-- ## Visalia City -->
+
+<!-- Serves 140,868. There are many sampling points for this location! But many are destroyed. Have to do guesswork as to which one is plausibly going into drinking water. -->
+
+<!-- ```{r, results='asis'} -->
+<!-- #140868 -->
+<!-- ar %>%  -->
+<!--   filter(SYSTEM_NO == "5410016") %>%  -->
+<!--   group_by(samplePointID, STATUS, STATION_TY) %>%  -->
+<!--   summarise(n_obs_each_pt = n()) %>%   -->
+<!--   kable(format = 'html', booktabs = T) -->
+<!-- ``` -->
+
+<!-- There are too many sample points, so let's filter to those with more than 16. But this runs the risk of sampling only the high arsenic or flouting ones. It could be flouting the MCL of *other* contaminants too, because under the SMF, the resampling schedule applies to other contaminants. -->
+
+<!-- ```{r fig.align="center", fig.width=10, fig.height=5} -->
+<!-- #1010005-010 -->
+<!-- ar %>%  -->
+<!--   group_by(samplePointID) %>%  -->
+<!--   filter(SYSTEM_NO == "5410016", STATUS %in% c('AU', 'AR', 'AT'), n() > 16) %>%  -->
+<!--   ggplot(aes(sampleDate, ar_ugl, color = samplePointID)) + -->
+<!--   geom_point() + -->
+<!--   geom_hline(yintercept = 10, color = 'red') + -->
+<!--   geom_vline(xintercept = dmy('23012006'), color = "blue") + -->
+<!--   geom_smooth(alpha = .5) + -->
+<!--   theme_minimal() + -->
+<!--   facet_grid(cols = vars(STATUS)) + -->
+<!--   scale_color_brewer(palette = "Dark2") + -->
+<!--   scale_x_date(date_breaks = '1 year', date_labels = "%Y") + -->
+<!--   theme(axis.text.x = element_text(angle = 45), legend.position = 'top') -->
+<!-- ``` -->
+
+<!-- This city doesn't have a lot of treated data. but maybe it has a working treatment plant and has obtained the waiver. -->
+
+<!-- ```{r, results='asis'} -->
+<!-- #1010005-010 -->
+<!-- ar %>%  -->
+<!--   group_by(samplePointID) %>%  -->
+<!--   filter(SYSTEM_NO == "5410016", STATUS %in% c('AT')) %>%  -->
+<!--   kable(format = 'html') -->
+<!--   # ggplot(aes(sampleDate, ar_ugl, color = samplePointID)) + -->
+<!--   # geom_point() + -->
+<!--   # geom_hline(yintercept = 10, color = 'red') + -->
+<!--   # geom_vline(xintercept = dmy('23012006'), color = "blue") + -->
+<!--   # geom_smooth(alpha = .5) + -->
+<!--   # theme_minimal() + -->
+<!--   # facet_grid(cols = vars(STATUS)) + -->
+<!--   # scale_color_brewer(palette = "Dark2") + -->
+<!--   # scale_x_date(date_breaks = '1 year', date_labels = "%Y") + -->
+<!--   # theme(axis.text.x = element_text(angle = 45), legend.position = 'top') -->
+<!-- ``` -->
