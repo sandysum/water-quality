@@ -1,0 +1,324 @@
+---
+title: "CA SWRB describe and fix missing data"
+author: "Sandy Sum"
+date: '`r Sys.Date()`'
+output: 
+html_document:
+  number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(error = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(fig.align = "center")
+library(zoo)
+library(knitr)
+library(papeR)
+library(cowplot)
+library(tidyverse)
+library(readr)
+library(readxl)
+library(lubridate)
+library(ggplot2)
+library(kableExtra)
+library(DescTools)
+library(lfe)
+library(xtable)
+home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+```
+
+```{r echo = FALSE}
+# read in data
+sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
+loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
+  mutate(STATUS = str_to_upper(STATUS))
+# read arsenic and nitrate data from the CA SWRB portal 
+# read arsenic and nitrate data from the CA SWRB portal 
+# read arsenic and nitrate data from the CA SWRB portal 
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1998-2021.rds")) %>%
+  # drop destroyed and wastewater wells
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(
+    WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+    sampleDate = as_date(sampleDate),
+    # raw, untreated, monitoring well, and agriculture well considered raw
+    raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+    countyName = str_to_lower(countyName)
+  )
+
+# ni <- read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>%
+#   # drop destroyed and wastewater wells
+#   filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+#   mutate(
+#     WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+#     sampleDate = as_date(sampleDate),
+#     # raw, untreated, monitoring well, and agriculture well considered raw
+#     raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+#     countyName = str_to_lower(countyName)
+#   )
+# 
+# dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
+# names(dww) <- names(dww) %>% str_remove_all("\\s")
+# 
+# # read in gridded drought data
+# 
+# pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") %>% 
+#   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
+#          year = as.numeric(str_extract(my, "\\d{4}$")))
+#   
+cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+# 
+# labels(ar) <- c('Sampling loc ID', 'Sample date', 'Arsenic conc (ug/l)', 'Year',
+#                 'Lab num', 'FRDS no', 'District', 'User ID', 'PWS no', 
+#                 'Sampling loc type', 'Sampling loc status', 'County no', 'County name', 
+#                 'County ID','Sampling loc name', 'Station type', 'PWS name',
+#                 'HQ name', 'Address', 'City', 'State', 'Zip', 'Zip ext', 
+#                 'Population served', 'Connection served', 'Area served', 'Raw source'
+#                 )
+
+```
+
+# Summary of monitoring data so far
+
+There are `r length(unique(ar$SYSTEM_NO))` number of Public Water Systems (PWSs) in the CA AWRB monitoring data files with Arsenic monitoring data from `r min(ar$year, na.rm = TRUE)` to `r  min(ar$year, na.rm = TRUE)`. 
+
+```{r echo = FALSE, fig.height=4, fig.width=4.5}
+pws_summary <- ar %>% 
+  group_by(SYSTEM_NO) %>% 
+  dplyr::summarise(freq = n(),
+                   n_samplingloc = n_distinct(samplePointID), 
+                   mean_ar = mean(ar_ugl, na.rm = TRUE), 
+                   min_year = min(year, na.rm = TRUE),
+                   max_year = max(year, na.rm = TRUE),
+                   Population = POP_SERV[1],
+                   Connection = CONNECTION[1]
+                   ) %>% 
+  arrange(freq) %>% 
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+
+# pws_summary %>% ggplot(aes(mean_ar, freq)) +
+#   geom_point(alpha = .7) +
+#   theme_minimal_grid() +
+#   lims(y = c(0, 6000))
+```
+
+### Individual PWS Arsenic monitoting data: Summary statistic
+
+```{r echo = FALSE, results = 'asis'}
+labels(pws_summary) <- c('PWS ID', '# arsenic sample', '# unique sampling points', 'Mean Arsenic (ug/l)', 'Year of first sample', 'Year of last sample', 'Population served', '# Connections')
+papeR::summarise(pws_summary) %>% knitr::kable(format = 'simple')
+```
+
+Each PWS has from 1 to over 400 unique sampling point ID. 
+
+In my data, I am able to document if the sampling point correspond to a raw or treated source within a PWS.
+
+```{r results='asis'}
+papeR::summarise(ar %>% mutate(raw = factor(raw)), type = 'numeric', group = 'raw', variables = "ar_ugl") 
+```
+
+### How frequent does each PWS samples? Is it tied to Arsenic level?
+
+- Frequency of sampling by each PWS is loosely tied to mean Arsenic level
+- Not representative as some PWS might have many many connections or source, and hence is over represented if we just look at counts
+
+Summarizing at the PWS-year level; no PWS is ever made to do a monthly sample so that would be ridiculous to try to summarize at the monthly level as I was previously doing.
+
+
+```{r echo = FALSE}
+ar_py <- ar %>%
+  # filter only to groundwater and raw sources
+  filter(WATER_TYPE == "G", raw == 1) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    year,
+    countyName,
+    cv,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+
+pws_summary %>% ggplot(aes(mean_ar, freq)) +
+  geom_point(alpha = .7) +
+  theme_minimal_grid()
+```
+
+## Look at frequency of Ar monitoring by PWS
+
+A lot does have annual data! I reckon I can get away with interpolating if gaps are less than 3 years apart.
+
+```{r, fig.asp = .7}
+set.seed(1898)
+ar_py %>%
+  dplyr::filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6)) %>%
+  ggplot(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO)
+  )) +
+  geom_line() +
+  geom_point(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO),
+  ), size = 2) +
+  geom_vline(xintercept = 2006) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1980:2022) +
+  scale_color_brewer(palette = 'Dark2') +
+  theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = .9, size = 8), legend.key.size = unit(1, 'cm'), legend.position = 'top')
+```
+
+
+```{r, fig.asp = .7}
+set.seed(5347)
+ar_py %>%
+  dplyr::filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6)) %>%
+  ggplot(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO)
+  )) +
+  geom_line() +
+  geom_point(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO),
+  ), size = 2) +
+  geom_vline(xintercept = 2006) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1980:2022) +
+  scale_color_brewer(palette = 'Dark2') +
+  theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = .9, size = 8),legend.key.size = unit(1, 'cm'), legend.position = 'top')
+```
+
+```{r, fig.asp=.7}
+set.seed(8467)
+ar_py %>%
+  dplyr::filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6)) %>%
+  ggplot(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO)
+  )) +
+  geom_line() +
+  geom_point(aes(
+    year,
+    mean_ar,
+    color = factor(SYSTEM_NO),
+  ), size = 2) +
+  geom_vline(xintercept = 2006) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1980:2022) +
+  scale_color_brewer(palette = 'Dark2') +
+  theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = .9, size = 8), legend.key.size = unit(1, 'cm'), legend.position = 'top')
+```
+
+```{r}
+# prepping data for interpolation
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1974:2021) 
+names(comb) <- c('SYSTEM_NO', 'year')
+
+ar_py <- left_join(comb, ar_py) %>% 
+  group_by(SYSTEM_NO) %>% 
+  fill_(c("countyName", "cv", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+```
+
+
+### Interpolation 1
+
+Wow the spline would give very different values...
+
+```{r fig.asp = .7}
+# interpolate max gap of 3
+chk <- ar_py %>% filter(SYSTEM_NO == 4210003)
+
+# interpolate max gap of 2
+
+chk_int_lin <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.approx(mean_ar, maxgap = 2, na.rm = FALSE))
+chk_int_sp <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
+
+ggplot(chk_int_lin, aes(year, mean_ar)) +
+  geom_point(data = chk, color = 'red', shape = 4, size = 3) +
+  geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+   geom_line(color = 'blue', size = 1.5, alpha = .6) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+
+```
+
+### Interpolation 2
+
+```{r fig.asp = .7}
+# interpolate max gap of 3
+chk <- ar_py %>% filter(SYSTEM_NO == 2000202)
+
+# interpolate max gap of 2
+
+chk_int_lin <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.approx(mean_ar, maxgap = 2, na.rm = FALSE))
+chk_int_sp <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
+
+ggplot(chk_int_lin, aes(year, mean_ar)) +
+  geom_point(data = chk, color = 'red', shape = 4, size = 3) +
+  geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+  geom_line(color = 'blue', size = 1.5, alpha = .6) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+
+```
+
+### Interpolation 3
+
+```{r}
+chk <- ar_py %>% filter(SYSTEM_NO == 1500006)
+
+# interpolate max gap of 2
+
+chk_int_lin <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.approx(mean_ar, maxgap = 2, na.rm = FALSE))
+chk_int_sp <- chk %>% arrange(year) %>% 
+  ungroup() %>% 
+  mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
+
+ggplot(chk_int_lin, aes(year, mean_ar)) +
+  geom_point(data = chk, color = 'red', shape = 4, size = 3) +
+  geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+  geom_line(color = 'blue', size = 1.5, alpha = .6) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+```
+
+I think that I will interpolate with the spline and then drop system no with less than X consecutive number of observation.

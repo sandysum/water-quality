@@ -150,15 +150,16 @@ ni %>%
 
 # Exploring Arsenic, Running Regressions -------------------------------------------------
 
-ar_pws_y_raw_gw <- ar %>%
-  # filter only to groundwater
+ar_py <- ar %>%
+  # filter only to groundwater and raw sources
   filter(WATER_TYPE == "G", raw == 1) %>%
-  mutate(cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
   group_by(
     SYSTEM_NO,
+    year,
     countyName,
     cv,
-    year,
     DISTRICT,
     CITY,
     POP_SERV,
@@ -168,51 +169,30 @@ ar_pws_y_raw_gw <- ar %>%
     AREA_SERVE
   ) %>%
   # Winsorize as per Shapiro (2021 paper)
-  dplyr::summarise(median_ar = Winsorize(median(ar_ugl, na.rm = TRUE), probs = c(0, 0.99)),
-                   mean_ar = mean(ar_ugl, na.rm = TRUE)) %>%
-  ungroup()
-
-# at this point probably gotta thing about dropping the pwss with only one observations
-# I feel pretty good that a lot has annual readings
-set.seed(64679)
-ar_pws_y_raw_gw %>%
-  dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
-  ggplot(aes(
-    year,
-    mean_ar,
-    color = factor(SYSTEM_NO)
-  )) +
-  geom_line() +
-  geom_point(aes(
-    year,
-    mean_ar,
-    color = factor(SYSTEM_NO),
-  ), size = 2) +
-  geom_vline(xintercept = 2006) +
-  geom_hline(yintercept = 10, color = 'red') +
-  theme_minimal_vgrid() +
-  scale_x_continuous(breaks = 1980:2022) +
-  scale_color_brewer(palette = 'Dark2') +
-  theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = .9))
-
-# yellow got triggered into annual readings
-
-ar_pws_y_raw_gw_freq <- ar_pws_y_raw_gw %>%
-  group_by(SYSTEM_NO) %>%
   dplyr::summarise(
-    freq = n(),
-    mean_ar = mean(mean_ar, na.rm = TRUE),
-    min_year = min(year, na.rm = TRUE),
-    max_year = max(year, na.rm = TRUE),
-    County = countyName[1],
-    Population = POP_SERV[1],
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
   ) %>%
-  arrange(freq)
+  # drop PWSs with only one observation
+  group_by(SYSTEM_NO) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
 
-# filter to those with annual readings from 2008-2010?
+# prepping data for interpolation
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1974:2021) 
+names(comb) <- c('SYSTEM_NO', 'year')
 
-ar_pws_y_raw_gw_sub <- ar_pws_y_raw_gw %>%
-  filter()
+ar_py <- left_join(comb, ar_py) %>% 
+  group_by(SYSTEM_NO) %>% 
+  fill_(c("countyName", "cv", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+
+# now we interpolate the data
+
+ar_py_int <- ar_py %>% 
+  arrange(SYSTEM_NO, year) %>% 
+  group_by(SYSTEM_NO) %>% 
+  mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
 
 ar_drought <- ar_pws_y_raw_gw %>% 
   ungroup() %>% 
