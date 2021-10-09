@@ -28,22 +28,32 @@ sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx"))
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
   mutate(STATUS = str_to_upper(STATUS))
 c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
-  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
+  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER) 
 
 # Save and clean for Arsenic Data
 
 all_arsenic <- future.apply::future_lapply(list(chem00_07, chem08_14, chem15_20, chem74_99), function(x){
   x %>% mutate_at(vars(matches("DATE")), ~(mdy_hms(.))) %>% 
-    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, ar_ugl =FINDING) %>% 
+    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, ar_ugl =FINDING, sampleTime = SAMP_TIME) %>% 
     mutate(year = year(sampleDate),
            labNum = as.integer(LAB_NUM)) %>% 
     select(-LAB_NUM) %>% 
-    left_join(loc, by = c("samplePointID"="PRI_STA_C")) %>%
+    left_join(loc, by = c("samplePointID" = "PRI_STA_C")) %>%
     mutate(countyNumber = as.numeric(COUNTY), .keep = "unused") %>%
-    left_join(c_nm) %>% 
-    select(-COMMENT_1)
-}) %>% bind_rows() %>% 
-  left_join(sys)
+    left_join(c_nm)
+}) %>% bind_rows() %>%
+  left_join(sys) %>%
+  select(-COMMENT_1) %>%
+  # filter out destroyed waste water well and pending status
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(
+    WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+    sampleDate = as_date(sampleDate),
+    sampleHour = str_extract(sampleTime, "\\d{2}"),
+    # raw, untreated, monitoring well, and agriculture well considered raw
+    raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+    countyName = str_to_lower(countyName)
+  )
 
 rm(list = ls(pattern = 'chem'))
 
@@ -92,7 +102,7 @@ chem00_07 <- read_csv(file.path(home, "ca_water_qual/chem_2000_2007.csv")) %>% f
 
 all_nitrate <- future.apply::future_lapply(list(chem00_07, chem08_14, chem15_20, chem74_99), function(x){
   x %>% mutate_at(vars(matches("DATE")), ~(mdy_hms(.))) %>% 
-    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, n_mgl =FINDING) %>% 
+    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, n_mgl =FINDING,  sampleTime = SAMP_TIME) %>% 
     mutate(year = year(sampleDate),
            labNum = as.integer(LAB_NUM)) %>% 
     select(-LAB_NUM) %>% 

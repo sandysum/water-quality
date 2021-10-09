@@ -44,10 +44,6 @@ ni <-read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>%
 
 dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
 names(dww) <- names(dww) %>% str_remove_all("\\s")
-# c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
-  # rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
-
-baseline <- readRDS("../Data/ca_water_qual/ar_2006_levels.rds")
 
 # read in gridded drought data
 
@@ -194,13 +190,9 @@ ar_py_int <- ar_py %>%
   group_by(SYSTEM_NO) %>% 
   mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
 
-ar_drought <- ar_pws_y_raw_gw %>% 
+ar_drought <- ar_py_int %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
-  left_join(baseline) %>% 
-  mutate(mean_ar = Winsorize(mean_ar, na.rm = TRUE),
-         mean_pdsi2 = (mean_pdsi^2)*sign(mean_pdsi),
-         ar2006 = factor(ar2006, levels = c('low', 'med', 'high')))
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO"))
 
 # run regressions
 
@@ -211,14 +203,14 @@ mod <-
 summary(mod)
 
 mod1 <-
-  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | countyName + year,
+  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | CITY,
        data = ar_drought
   )
 
 summary(mod1)
 
 mod2 <-
-  felm(mean_ar ~ mean_pdsi + mean_pdsi:ar2006 | ar2006 | 0 | 0 , data = ar_drought)
+  felm(mean_ar ~ mean_pdsi + mean_pdsi:ar2006 + ar2006 | 0 | 0 | 0 , data = ar_drought)
 
 summary(mod2)
 
