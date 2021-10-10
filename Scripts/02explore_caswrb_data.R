@@ -57,6 +57,7 @@ pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>%
 # can see reassuring patterns of drought that are congruent with historical california drought.
 set.seed(1028928)
 q <- sample(pdsi$SABL_PWSID, 6)
+quartz()
 pdsi %>% 
   filter(SABL_PWSID %in% q) %>% 
   ggplot(aes(x = year, y = mean_pdsi)) +

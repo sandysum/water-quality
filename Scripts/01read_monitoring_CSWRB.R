@@ -57,42 +57,10 @@ all_arsenic <- future.apply::future_lapply(list(chem00_07, chem08_14, chem15_20,
 
 rm(list = ls(pattern = 'chem'))
 
-saveRDS(all_arsenic, "1int/caswrb_ar_1998-2021.rds")
+saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2021.rds")
 
-################################# SUMMARY STATS AND EXPLORATION FOR ARSENIC ################################# 
 
-rawSources <- c("AR", "AU", "CR", "PR")
-
-# should I drop the good measurements or interpolate?
-raw <- ar %>% 
-  # group_by(samplePointID) %>% 
-  filter(STATUS %in% rawSources) 
-
-raw %>%  group_by(samplePointID) %>% 
-  dplyr::summarize(n_obs = n()) %>%
-  select(n_obs) %>%
-  as_vector() %>%
-  quantile() 
-
-# 75 % of the monitoring stations (total 13,612) has at least 14 observations... but how frequent are they? Filter to locations with at least 8 ...
-
-raw <- raw %>% 
-  group_by(samplePointID) %>% filter(n()>8)
-
-# filter to at least 10 observations, and then what data range? Should at lease cover the duration of the drought
-set.seed(24); 
-set.seed(4)
-set.seed(3080)
-raw %>%
-  group_by(samplePointID) %>% 
-  filter(samplePointID %in% sample(raw$samplePointID, size = 6, replace = FALSE)) %>% 
-  ggplot(aes(sampleDate, ar_ugl, color = samplePointID)) +
-  geom_point() +
-  geom_line() +
-  theme_minimal() +
-  scale_x_date(date_breaks = "2 year", date_labels = "%Y")
-
-# Save and clean for Nitrate Data
+# Read, clean, and save Nitrate data --------------------------------------
 
 # filter all only 00618 for nitrate as N
 chem74_99 <- read_csv(file.path(home, "ca_water_qual/chem_1974_1999.csv")) %>% filter(STORE_NUM == "00618")
@@ -102,20 +70,30 @@ chem00_07 <- read_csv(file.path(home, "ca_water_qual/chem_2000_2007.csv")) %>% f
 
 all_nitrate <- future.apply::future_lapply(list(chem00_07, chem08_14, chem15_20, chem74_99), function(x){
   x %>% mutate_at(vars(matches("DATE")), ~(mdy_hms(.))) %>% 
-    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, n_mgl =FINDING,  sampleTime = SAMP_TIME) %>% 
+    dplyr::select(samplePointID = PRIM_STA_C, sampleDate = SAMP_DATE, LAB_NUM, n_mgl =FINDING, sampleTime = SAMP_TIME) %>% 
     mutate(year = year(sampleDate),
            labNum = as.integer(LAB_NUM)) %>% 
     select(-LAB_NUM) %>% 
-    left_join(loc, by = c("samplePointID"="PRI_STA_C")) %>%
+    left_join(loc, by = c("samplePointID" = "PRI_STA_C")) %>%
     mutate(countyNumber = as.numeric(COUNTY), .keep = "unused") %>%
-    left_join(c_nm) %>% 
-    select(-COMMENT_1)
-}) %>% bind_rows() %>% 
-  left_join(sys)
+    left_join(c_nm)
+}) %>% bind_rows() %>%
+  left_join(sys) %>%
+  select(-COMMENT_1) %>%
+  # filter out destroyed waste water well and pending status
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(
+    WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+    sampleDate = as_date(sampleDate),
+    sampleHour = str_extract(sampleTime, "\\d{2}"),
+    # raw, untreated, monitoring well, and agriculture well considered raw
+    raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+    countyName = str_to_lower(countyName)
+  )
 
 rm(list = ls(pattern = 'chem'))
 
-saveRDS(all_nitrate, "../Data/1int/caswrb_n_1998-2021.rds")
+saveRDS(all_nitrate, "../Data/1int/caswrb_n_1974-2021.rds")
 
 chem %>% 
   group_by(year) %>% 
