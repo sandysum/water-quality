@@ -41,26 +41,9 @@ loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>%
 # read arsenic and nitrate data from the CA SWRB portal 
 # read arsenic and nitrate data from the CA SWRB portal 
 # read arsenic and nitrate data from the CA SWRB portal 
-ar <- read_rds(file.path(home, "1int/caswrb_ar_1998-2021.rds")) %>% 
-  # drop destroyed and wastewater wells
-  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-         sampleDate = as_date(sampleDate),
-         # raw, untreated, monitoring well, and agriculture well considered raw
-         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-         countyName = str_to_lower(countyName))
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
-ni <-read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>% 
-  # drop destroyed and wastewater wells
-  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-         sampleDate = as_date(sampleDate),
-         # raw, untreated, monitoring well, and agriculture well considered raw
-         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-         countyName = str_to_lower(countyName))
-
-dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
-names(dww) <- names(dww) %>% str_remove_all("\\s")
+ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
 ar_my <- ar %>% 
   # filter only to groundwater
   filter(WATER_TYPE=="G", year >= 1996) %>%
@@ -186,13 +169,6 @@ ar_my_drought %>%
   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
 ```
-
-# Missing Data Analysis
-
-```{r}
-
-```
-
 
 # Datasets and Notes
 

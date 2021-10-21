@@ -24,23 +24,9 @@ sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx"))
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
   mutate(STATUS = str_to_upper(STATUS))
 # read arsenic and nitrate data from the CA SWRB portal 
-ar <- read_rds(file.path(home, "1int/caswrb_ar_1998-2021.rds")) %>% 
-  # drop destroyed and wastewater wells
-  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-         sampleDate = as_date(sampleDate),
-         # raw, untreated, monitoring well, and agriculture well considered raw
-         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-         countyName = str_to_lower(countyName))
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
 
-ni <-read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>% 
-  # drop destroyed and wastewater wells
-  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-  mutate(WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-         sampleDate = as_date(sampleDate),
-         # raw, untreated, monitoring well, and agriculture well considered raw
-         raw = if_else(map(str_extract_all(STATUS, "."),2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-         countyName = str_to_lower(countyName))
+ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 
 dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
 names(dww) <- names(dww) %>% str_remove_all("\\s")
@@ -147,9 +133,14 @@ ni %>%
 
 # Exploring Arsenic, Running Regressions -------------------------------------------------
 
+# drop the duplicates!
+
+ar <- ar %>% distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE)
+
 ar_py <- ar %>%
   # filter only to groundwater and raw sources
-  filter(WATER_TYPE == "G", raw == 1) %>%
+  # star from year 1984, when there are more data points..
+  filter(WATER_TYPE == "G", raw == 1, year > 1983) %>%
   mutate(month = month(sampleDate),
          cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
   group_by(
@@ -177,7 +168,7 @@ ar_py <- ar %>%
   mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
 
 # prepping data for interpolation
-comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1974:2021) 
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1984:2021) 
 names(comb) <- c('SYSTEM_NO', 'year')
 
 ar_py <- left_join(comb, ar_py) %>% 
@@ -188,8 +179,11 @@ ar_py <- left_join(comb, ar_py) %>%
 
 ar_py_int <- ar_py %>% 
   arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>% 
-  mutate(mean_ar = na.spline(mean_ar, maxgap = 2, na.rm = FALSE))
+  group_by(SYSTEM_NO) %>%
+  mutate(true = if_else(is.na(mean_ar), "true value", "interpolated"),
+         mean_ar = na.spline(mean_ar, 
+                             maxgap = 2,
+                             na.rm = FALSE))
 
 ar_drought <- ar_py_int %>% 
   ungroup() %>% 

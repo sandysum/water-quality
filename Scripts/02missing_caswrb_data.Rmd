@@ -28,7 +28,7 @@ library(kableExtra)
 library(DescTools)
 library(lfe)
 library(xtable)
-home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
 ```
 
 ```{r echo = FALSE}
@@ -39,16 +39,7 @@ loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>%
 # read arsenic and nitrate data from the CA SWRB portal 
 # read arsenic and nitrate data from the CA SWRB portal 
 # read arsenic and nitrate data from the CA SWRB portal 
-ar <- read_rds(file.path(home, "1int/caswrb_ar_1998-2021.rds")) %>%
-  # drop destroyed and wastewater wells
-  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-  mutate(
-    WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-    sampleDate = as_date(sampleDate),
-    # raw, untreated, monitoring well, and agriculture well considered raw
-    raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-    countyName = str_to_lower(countyName)
-  )
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
 # ni <- read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>%
 #   # drop destroyed and wastewater wells
@@ -322,3 +313,114 @@ ggplot(chk_int_lin, aes(year, mean_ar)) +
 ```
 
 I think that I will interpolate with the spline and then drop system no with less than X consecutive number of observation.
+
+## Interpolating as a group
+
+```{r}
+# drop the duplicates!
+
+ar <- ar %>% distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE)
+
+ar_py <- ar %>%
+  # filter only to groundwater and raw sources
+  # star from year 1984, when there are more data points..
+  filter(WATER_TYPE == "G", raw == 1, year > 1983) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    year,
+    countyName,
+    cv,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
+  ) %>%
+  # drop PWSs with only one observation
+  group_by(SYSTEM_NO) %>%
+  filter(n()>1) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+
+# prepping data for interpolation
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1984:2021) 
+names(comb) <- c('SYSTEM_NO', 'year')
+
+ar_py <- left_join(comb, ar_py) %>% 
+  group_by(SYSTEM_NO) %>% 
+  fill_(c("countyName", "cv", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+
+# now we interpolate the data, but keep max gap at 2
+
+ar_py_int <- ar_py %>% 
+  arrange(SYSTEM_NO, year) %>% 
+  group_by(SYSTEM_NO) %>%
+  mutate(true = if_else(is.na(mean_ar), "true value", "interpolated"),
+         mean_ar = na.spline(mean_ar, 
+                             maxgap = 2,
+                             na.rm = FALSE))
+
+ar_py_int_all <- ar_py %>% 
+  arrange(SYSTEM_NO, year) %>% 
+  group_by(SYSTEM_NO) %>%
+  mutate(true = if_else(is.na(mean_ar), "true value", "interpolated"),
+         mean_ar = na.spline(mean_ar, 
+                             # maxgap = 2,
+                             na.rm = FALSE))
+```
+
+Plot the results
+
+```{r}
+set.seed(42)
+ar_sub <- ar_py_int %>% filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6))
+ggplot(ar_sub, aes(year, mean_ar, shape = true, color = factor(SYSTEM_NO))) +
+  geom_point(size = 3) +
+  # geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+  geom_line(size = 1.5, alpha = .6, aes(group=SYSTEM_NO)) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+
+```
+
+Comparing interpolating max.gap to be 2 and all... this is crazy. This should be a caution.
+
+```{r}
+set.seed(86)
+ar_sub <- ar_py_int %>% filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6))
+g2 <- ggplot(ar_sub, aes(year, mean_ar, shape = true, color = factor(SYSTEM_NO))) +
+  geom_point(size = 3) +
+  # geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+  geom_line(size = 1.5, alpha = .6, aes(group=SYSTEM_NO)) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+set.seed(86)
+ar_sub_all <- ar_py_int_all %>% filter(SYSTEM_NO %in% sample(ar_py$SYSTEM_NO, 6))
+g_all <- ggplot(ar_sub_all, aes(year, mean_ar, shape = true, color = factor(SYSTEM_NO))) +
+  geom_point(size = 3) +
+  # geom_line(data = chk_int_sp, color = 'green', size = 1.5, alpha = .6) +
+  geom_line(size = 1.5, alpha = .6, aes(group=SYSTEM_NO)) +
+  theme_minimal_vgrid() +
+  scale_x_continuous(breaks = 1974:2021) +
+   theme(axis.text.x = element_text(angle = 45, vjust = .9, hjust = 1, size = 8))
+
+```
+
+Looking at another instance with max gap = 2
+
+```{r fig.asp= .8}
+plot_grid(g2, g_all, nrow = 2, scale = 1)
+```
+
+
