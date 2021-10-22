@@ -41,36 +41,14 @@ loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>%
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
-# ni <- read_rds(file.path(home, "1int/caswrb_n_1998-2021.rds")) %>%
-#   # drop destroyed and wastewater wells
-#   filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
-#   mutate(
-#     WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
-#     sampleDate = as_date(sampleDate),
-#     # raw, untreated, monitoring well, and agriculture well considered raw
-#     raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
-#     countyName = str_to_lower(countyName)
-#   )
-# 
-# dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
-# names(dww) <- names(dww) %>% str_remove_all("\\s")
-# 
-# # read in gridded drought data
-# 
-# pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") %>% 
-#   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-#          year = as.numeric(str_extract(my, "\\d{4}$")))
-#   
-cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
-# 
-# labels(ar) <- c('Sampling loc ID', 'Sample date', 'Arsenic conc (ug/l)', 'Year',
-#                 'Lab num', 'FRDS no', 'District', 'User ID', 'PWS no', 
-#                 'Sampling loc type', 'Sampling loc status', 'County no', 'County name', 
-#                 'County ID','Sampling loc name', 'Station type', 'PWS name',
-#                 'HQ name', 'Address', 'City', 'State', 'Zip', 'Zip ext', 
-#                 'Population served', 'Connection served', 'Area served', 'Raw source'
-#                 )
+ni <- read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 
+cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+
+pws_land <- read_sf("../../Data/1int/pws_sf_clay_ph.shp")
+pws <- read_sf("../../Data/SABL_Public_080221/SABL_Public_080221.shp")
+
+dww <- read_csv("../../Data/ca_drinkingwatersystems_meta.csv")
 ```
 
 # Summary of monitoring data so far
@@ -101,7 +79,7 @@ pws_summary <- ar %>%
 
 ```{r echo = FALSE, results = 'asis'}
 labels(pws_summary) <- c('PWS ID', '# arsenic sample', '# unique sampling points', 'Mean Arsenic (ug/l)', 'Year of first sample', 'Year of last sample', 'Population served', '# Connections')
-papeR::summarise(pws_summary) %>% knitr::kable(format = 'simple')
+papeR::summarise(pws_summary) 
 ```
 
 Each PWS has from 1 to over 400 unique sampling point ID. 
@@ -110,17 +88,53 @@ In my data, I am able to document if the sampling point correspond to a raw or t
 
 ```{r results='asis'}
 papeR::summarise(ar %>% mutate(raw = factor(raw)), type = 'numeric', group = 'raw', variables = "ar_ugl") 
+papeR::summarise(ni %>% mutate(raw = factor(raw)), type = 'numeric', group = 'raw', variables = "n_mgl") 
 ```
+
+### How many PWSs has a shapefile boundary?
+
+*Note* Please be advised that this copy of the System Area Boundary Layer data is a snapshot of the CA drinking water system area boundaries provided to the State Board by individual water systems. A water system may have provided accurate, up-to-date boundaries, or may have provided boundaries that are only approximate. This layer does not contain all Public Water System boundaries. The dataset is in the process of being reviewed and verified. In addition, new boundaries are being added. Please note that these definitions are NOT a legal definition and should NOT be used to settle boundary disputes.
+
+In lieu of what was said above, I am not sure if I should use the PWS shapfile boundaries to match drought, clay layer, landuse, and ph data. Would I lose a lot of PWS data if they did not submit a shapefile boundary? It also seems like smaller and lower income PWSs would not have the capability to submit shapefiles...
+
+Someday I will do additional work to match the PWS with no shapefiles to the zipcode...
+
+```{r include = FALSE}
+ar <- ar %>% mutate(has_shp = SYSTEM_NO %in% str_extract(pws$SABL_PWSID, "\\d+"))
+ni <- ni %>% mutate(has_shp = SYSTEM_NO %in% str_extract(pws$SABL_PWSID, "\\d+"))
+ar$has_shp %>% table() 
+ar %>% filter(!has_shp) %>% dplyr::select(SYSTEM_NO) %>% unique()
+```
+
+```{r results='asis', include=FALSE}
+papeR::summarise(ar %>% mutate(has_shp = factor(has_shp)), type = 'numeric', group = 'has_shp', variables = "ar_ugl") 
+papeR::summarise(ni %>% mutate(has_shp = factor(has_shp)), type = 'numeric', group = 'has_shp', variables = "n_mgl") 
+```
+
+The total number of observations we would drop is $\frac{40896}{321696} \approx 11.3\%$, which is not ideal. That would be dropping 2,708 PWSs too. 
+
+### Using ZIPCODE to match to geographical area
+
+```{r}
+ar <- ar %>% mutate(ZIP = if_else("00000"))
+```
+
 
 ### How frequent does each PWS samples? Is it tied to Arsenic level?
 
 - Frequency of sampling by each PWS is loosely tied to mean Arsenic level
 - Not representative as some PWS might have many many connections or source, and hence is over represented if we just look at counts
 
-Summarizing at the PWS-year level; no PWS is ever made to do a monthly sample so that would be ridiculous to try to summarize at the monthly level as I was previously doing.
-
 
 ```{r echo = FALSE}
+clay_ph <- pws_land %>% 
+  as_data_frame() %>% 
+  mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"),
+         ph_grp = cut_interval(ph, 3),
+         clay_grp = cut_number(clay, 3)) 
+levels(clay_ph$ph_grp) <- c('low', 'med', 'high')
+levels(clay_ph$clay_grp) <- c('low', 'med', 'high')
+
 ar_py <- ar %>%
   # filter only to groundwater and raw sources
   filter(WATER_TYPE == "G", raw == 1) %>%
@@ -145,11 +159,56 @@ ar_py <- ar %>%
     mean_ar = mean(ar_ugl, na.rm = TRUE)
   ) %>%
   ungroup() %>%
-  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99))) %>% 
+  left_join(clay_ph) %>% 
+  drop_na(ph, clay)
 
-pws_summary %>% ggplot(aes(mean_ar, freq)) +
-  geom_point(alpha = .7) +
+ar_p <- ar %>%
+  # filter only to groundwater and raw sources
+  filter(WATER_TYPE == "G", raw == 1) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    # year,
+    countyName,
+    cv,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99))) %>% 
+  left_join(clay_ph) %>% 
+  drop_na(ph, clay)
+
+ar_p %>% ggplot(aes(mean_ar)) +
+  geom_density(aes(color = clay_grp)) +
   theme_minimal_grid()
+
+ar_p %>% ggplot(aes(mean_ar)) +
+  geom_density(aes(color = ph_grp)) +
+  theme_minimal_grid()
+
+ar_p %>% ggplot(aes(median_ar)) +
+  geom_density(aes(color = clay_grp)) +
+  theme_minimal_grid()
+
+ar_p %>% ggplot(aes(median_ar)) +
+  geom_density(aes(color = ph_grp)) +
+  theme_minimal_grid()
+
+mod <- felm(mean_ar ~ ph+clay | SYSTEM_NO | 0 | 0, data = ar_p)
+
 ```
 
 ## Look at frequency of Ar monitoring by PWS
