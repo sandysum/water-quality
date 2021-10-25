@@ -219,14 +219,14 @@ ni_drought <- ni_py_int %>%
 # if the previous model is to be believed, then there should be no relationship here
 
 mod_tr <-
-  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 | SYSTEM_NO + year | 0 | CITY,
+  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | CITY,
        data = ni_drought)
 
 summary(mod_tr)
 
 # Regression PDSI on surface water ----------------------------------------
 
-ar_py <- ar %>%
+ni_py <- ni %>%
   # filter only to groundwater and raw sources
   # star from year 1984, when there are more data points..
   filter(raw == 1, WATER_TYPE == "S", year > 1985) %>%
@@ -249,40 +249,40 @@ ar_py <- ar %>%
   ) %>%
   # Winsorize as per Shapiro (2021 paper)
   dplyr::summarise(
-    median_ar = median(ar_ugl, na.rm = TRUE),
-    mean_ar = mean(ar_ugl, na.rm = TRUE)
+    median_n = median(n_mgl, na.rm = TRUE),
+    mean_n = mean(n_mgl, na.rm = TRUE)
   ) %>%
   # keep PWS with at least 10 observations
   group_by(SYSTEM_NO) %>%
   filter(n()>5) %>%
   ungroup() %>%
-  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+  mutate(mean_ar = Winsorize(mean_n, probs = c(0, .99)))
 
 # 38 years
 2021-1984 +1
 
 # prepping data for interpolation
-comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1986:2021) 
+comb <- expand_grid(unique(ni_py$SYSTEM_NO), 1986:2021) 
 names(comb) <- c('SYSTEM_NO', 'year')
 
-ar_py <- left_join(comb, ar_py) %>% 
+ar_py <- left_join(comb, ni_py) %>% 
   group_by(SYSTEM_NO) %>% 
   fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
 
 # now we interpolate the data
 
-ar_py_int <- ar_py %>% 
+ni_py_int <- ni_py %>% 
   arrange(SYSTEM_NO, year) %>% 
   group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
-         mean_ar = na.spline(mean_ar, 
+  mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
+         mean_ar = na.spline(mean_n, 
                              maxgap = 2,
                              na.rm = FALSE),
-         n_obs = sum(is.na(mean_ar)))
+         n_obs = sum(is.na(mean_n)))
 
 # what if we drop those with less than 10 observations: 42615
 
-ar_drought <- ar_py_int %>% 
+ni_drought <- ni_py_int %>% 
   ungroup() %>% 
   left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
   group_by(SYSTEM_NO) %>% 
@@ -300,46 +300,53 @@ ar_drought <- ar_py_int %>%
 # there is not a lot of arsenic in groundwater
 
 mod_s <-
-  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 | SYSTEM_NO + year | 0 | CITY,
-       data = ar_drought)
+  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | CITY,
+       data = ni_drought)
 
 summary(mod_s)
 
+# Plot and save -----------------------------------------------------------
+
+
+plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nlags = 6)
+
+save_plot(file.path(home, "Plots/n_pdsi_coefs.png"), plot_grid(plotlist = plist, ncol = 1), base_asp = .7, scale = 3.5)
+
 # yay I think it works because I am having year FE and system SE and clustering at the city level
 
-ni_my <- ni %>% 
-  filter(!is.na(countyName), WATER_TYPE == "G") %>% 
-  mutate(month = month(sampleDate)) %>% 
-  group_by(countyName, year, month, raw) %>%
-  summarise(median_ni = median(n_mgl, na.rm = TRUE),
-            mean_ni = mean(n_mgl, na.rm = TRUE)) 
-
-ni_my_drought <- ni_my %>% 
-  mutate(countyName = str_to_lower(countyName)) %>% 
-  left_join(climdiv_cw, by = c('countyName' = 'NAME')) %>% 
-  mutate(climdiv = as.integer(climdiv_assigned),
-         in_cv = factor(countyName%in%cv_counties)) %>% 
-  left_join(pdsi, by = c("year", "month", "climdiv")) %>% 
-  mutate(pdsi2 = (pdsi^2)*sign(pdsi))
-
-# visualize
-
-ni_my_drought %>% 
-  filter(countyName == "tulare", raw == 1) %>% 
-  ggplot(aes(date, median_ni)) +
-  geom_line() +
-  geom_line(aes(date, pdsi), color = 'blue') +
-  theme_minimal_hgrid() +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-
-mod <-
-  felm(
-    mean_ni ~ pdsi |
-      month + countyName |
-      0 | countyName + year,
-    data = ni_my_drought %>% filter(raw == 1)
-  )
-
-summary(mod)  
+# ni_my <- ni %>% 
+#   filter(!is.na(countyName), WATER_TYPE == "G") %>% 
+#   mutate(month = month(sampleDate)) %>% 
+#   group_by(countyName, year, month, raw) %>%
+#   dplyr::summarise(median_ni = median(n_mgl, na.rm = TRUE),
+#             mean_ni = mean(n_mgl, na.rm = TRUE)) 
+# 
+# ni_my_drought <- ni_my %>% 
+#   mutate(countyName = str_to_lower(countyName)) %>% 
+#   left_join(climdiv_cw, by = c('countyName' = 'NAME')) %>% 
+#   mutate(climdiv = as.integer(climdiv_assigned),
+#          in_cv = factor(countyName%in%cv_counties)) %>% 
+#   left_join(pdsi, by = c("year", "month", "climdiv")) %>% 
+#   mutate(pdsi2 = (pdsi^2)*sign(pdsi))
+# 
+# # visualize
+# 
+# ni_my_drought %>% 
+#   filter(countyName == "tulare", raw == 1) %>% 
+#   ggplot(aes(date, median_ni)) +
+#   geom_line() +
+#   geom_line(aes(date, pdsi), color = 'blue') +
+#   theme_minimal_hgrid() +
+#   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+# 
+# mod <-
+#   felm(
+#     mean_ni ~ pdsi |
+#       month + countyName |
+#       0 | countyName + year,
+#     data = ni_my_drought %>% filter(raw == 1)
+#   )
+# 
+# summary(mod)  
 
