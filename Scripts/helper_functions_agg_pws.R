@@ -54,6 +54,8 @@ ph_by_pws_ls <- flatten(ph_by_pws) %>% unlist()
 
 pws_sf$avg_ph <- ph_by_pws_ls
 
+pws_sf <- pws_sf %>% rename(clay = avg_percent_clay, ph = avg_ph)
+
 st_write(pws_sf, dsn = "../Data/1int/pws_sf_clay_ph.shp")
 
 

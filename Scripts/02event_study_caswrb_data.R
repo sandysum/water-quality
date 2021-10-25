@@ -12,14 +12,11 @@ library(ggplot2)
 library(DescTools)
 library(cowplot)
 library(lfe)
+source("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 
-home <- "../Data/"
+home <- "Google Drive/My Drive/0Projects/1Water/2Quality/Data/"
 
 # Read data in ------------------------------------------------------------
-
-sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
-loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
-  mutate(STATUS = str_to_upper(STATUS))
 
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
@@ -54,7 +51,7 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ar_mod <- ar_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
+es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | CITY,
               data = ar_mod)
 p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', 
               main  = "Raw groundwater sources arsenic trends, 1996-2021")
@@ -118,8 +115,10 @@ ar_mod <- ar_mod %>% bind_cols(poly_td, poly_dy)
 
 es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
               data = ar_mod)
+
 p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar',
               main  = "Treated arsenic trends, 1996-2021")
+
 
 save_plot("Plots/ES_treated_ar_96-21.png", p1, base_asp = 2, scale = 1.5)
 

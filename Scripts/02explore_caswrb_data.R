@@ -15,6 +15,7 @@ library(tigris)
 library(DescTools)
 library(Hmisc)
 library(lfe)
+library(zoo)
 
 home <- "../Data/"
 
@@ -33,7 +34,7 @@ names(dww) <- names(dww) %>% str_remove_all("\\s")
 
 # read in gridded drought data
 
-pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
+pdsi <- readRDS("Google Drive/My Drive/0Projects/1Water/2Quality/Data/drought/pdsi_pws_monthyear.rds") %>% 
   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
          year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
   group_by(SABL_PWSID, year) %>% 
@@ -56,7 +57,12 @@ pdsi %>%
   
 # climdiv_cw <- read_csv("../Data/drought/ca_climdiv_crosswalk.csv") 
 #   
-cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced',
+                  'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% 
+  str_to_lower()
+gold <- c('Butte', "Amador", 'Calaveras', 'El Dorado', 'Mariposa', 'Nevada', 'Placer', 'Plumas', 'Sierra', 'Tuolumne', 'Yuba') %>% 
+  str_to_lower()
+
 
 # Explore Arsenic -----------------------------------------------------------------
 
@@ -131,7 +137,8 @@ ni %>%
 
 # create sample-year data; need to do some kind of event study
 
-# Exploring Arsenic, Running Regressions -------------------------------------------------
+
+# Regression PDSI on raw groundwater ----------------------------------------
 
 # drop the duplicates!
 
@@ -140,13 +147,15 @@ ar <- ar %>% distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, 
 ar_py <- ar %>%
   # filter only to groundwater and raw sources
   # star from year 1984, when there are more data points..
-  filter(WATER_TYPE == "G", raw == 1, year > 1983) %>%
+  filter(WATER_TYPE == "G", raw == 1, year > 1985) %>%
   mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>%
+         cv = if_else(countyName %in% cv_counties, 1, 0),
+         gold = if_else(countyName %in% gold, 1, 0)) %>%
   group_by(
     SYSTEM_NO,
     year,
     countyName,
+    gold,
     cv,
     DISTRICT,
     CITY,
@@ -161,73 +170,228 @@ ar_py <- ar %>%
     median_ar = median(ar_ugl, na.rm = TRUE),
     mean_ar = mean(ar_ugl, na.rm = TRUE)
   ) %>%
-  # drop PWSs with only one observation
+  # keep PWS with at least 10 observations
   group_by(SYSTEM_NO) %>%
-  filter(n()>1) %>%
+  filter(n()>5) %>%
   ungroup() %>%
   mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
 
 # prepping data for interpolation
-comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1984:2021) 
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1986:2021) 
 names(comb) <- c('SYSTEM_NO', 'year')
 
 ar_py <- left_join(comb, ar_py) %>% 
   group_by(SYSTEM_NO) %>% 
-  fill_(c("countyName", "cv", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
 
 # now we interpolate the data
 
 ar_py_int <- ar_py %>% 
   arrange(SYSTEM_NO, year) %>% 
   group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(is.na(mean_ar), "true value", "interpolated"),
+  mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
          mean_ar = na.spline(mean_ar, 
                              maxgap = 2,
-                             na.rm = FALSE))
+                             na.rm = FALSE),
+         n_obs = sum(is.na(mean_ar)))
+
+# what if we drop those with less than 10 observations: 42615
 
 ar_drought <- ar_py_int %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO"))
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
+  group_by(SYSTEM_NO) %>% 
+  mutate(
+    d = mean_pdsi, 
+    dlead = lead(d),
+    dlead2 = lead(dlead),
+    dlag1 = lag(d),
+    dlag2 = lag(dlag1),
+    dlag3 = lag(dlag2),
+    dlag4 = lag(dlag3),
+    dlag5 = lag(dlag4),
+    dlag6 = lag(dlag5))
+
+# drop data / pws 
 
 # run regressions
 
-mod <-
-  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | 0,
+# can I believe this model???
+
+mod_gw <-
+  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year |
+         0 | ZIP,
        data = ar_drought)
 
-summary(mod)
+summary(mod_gw)
 
-mod1 <-
-  felm(mean_ar ~ mean_pdsi | SYSTEM_NO | 0 | CITY,
-       data = ar_drought
-  )
+mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
 
-summary(mod1)
+.1/8.9
 
-mod2 <-
-  felm(mean_ar ~ mean_pdsi + mean_pdsi:ar2006 + ar2006 | 0 | 0 | 0 , data = ar_drought)
+# Regression PDSI on treated water ----------------------------------------
 
-summary(mod2)
+ar_py <- ar %>%
+  # filter only to groundwater and raw sources
+  # star from year 1984, when there are more data points..
+  filter(raw == 0, year > 1985) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0),
+         gold = if_else(countyName %in% gold, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    year,
+    countyName,
+    gold,
+    cv,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
+  ) %>%
+  # keep PWS with at least 10 observations
+  group_by(SYSTEM_NO) %>%
+  filter(n()>5) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
 
-# mod5 <-
-#   felm(
-#     mean_ar ~ mean_pdsi + ar2006 + mean_pdsi:ar2006 |
-#       SYSTEM_NO | 0 | SYSTEM_NO + month,
-#     data = ar_my_drought %>% filter(raw == 1)
-#   )
-# 
-# summary(mod5)
-# 
-# mod6 <-
-#   felm(
-#     mean_ar ~ mean_pdsi + ar2006 + mean_pdsi:ar2006 |
-#       SYSTEM_NO | 0 | countyName + month,
-#     data = ar_my_drought %>% filter(raw == 1)
-#   )
-# 
-# summary(mod6)
+# 38 years
+2021-1984 +1
 
-# oh gosh, I am so dejected, there is nothing here at all
+# prepping data for interpolation
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1986:2021) 
+names(comb) <- c('SYSTEM_NO', 'year')
+
+ar_py <- left_join(comb, ar_py) %>% 
+  group_by(SYSTEM_NO) %>% 
+  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+
+# now we interpolate the data
+
+ar_py_int <- ar_py %>% 
+  arrange(SYSTEM_NO, year) %>% 
+  group_by(SYSTEM_NO) %>%
+  mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
+         mean_ar = na.spline(mean_ar, 
+                             maxgap = 2,
+                             na.rm = FALSE),
+         n_obs = sum(is.na(mean_ar)))
+
+# what if we drop those with less than 10 observations: 42615
+
+ar_drought <- ar_py_int %>% 
+  ungroup() %>% 
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
+  group_by(SYSTEM_NO) %>% 
+  mutate(
+    d = mean_pdsi, 
+    dlead = lead(d),
+    dlead2 = lead(dlead),
+    dlag1 = lag(d),
+    dlag2 = lag(dlag1),
+    dlag3 = lag(dlag2),
+    dlag4 = lag(dlag3),
+    dlag5 = lag(dlag4),
+    dlag6 = lag(dlag5))
+
+# if the previous model is to be believed, then there should be no relationship here
+
+mod_tr <-
+  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 | SYSTEM_NO + year | 0 | CITY,
+       data = ar_drought)
+
+summary(mod_tr)
+
+# Regression PDSI on surface water ----------------------------------------
+
+ar_py <- ar %>%
+  # filter only to groundwater and raw sources
+  # star from year 1984, when there are more data points..
+  filter(raw == 1, WATER_TYPE == "S", year > 1985) %>%
+  mutate(month = month(sampleDate),
+         cv = if_else(countyName %in% cv_counties, 1, 0),
+         gold = if_else(countyName %in% gold, 1, 0)) %>%
+  group_by(
+    SYSTEM_NO,
+    year,
+    countyName,
+    gold,
+    cv,
+    DISTRICT,
+    CITY,
+    POP_SERV,
+    ZIP,
+    ZIP_EXT,
+    CONNECTION,
+    AREA_SERVE
+  ) %>%
+  # Winsorize as per Shapiro (2021 paper)
+  dplyr::summarise(
+    median_ar = median(ar_ugl, na.rm = TRUE),
+    mean_ar = mean(ar_ugl, na.rm = TRUE)
+  ) %>%
+  # keep PWS with at least 10 observations
+  group_by(SYSTEM_NO) %>%
+  filter(n()>5) %>%
+  ungroup() %>%
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99)))
+
+# 38 years
+2021-1984 +1
+
+# prepping data for interpolation
+comb <- expand_grid(unique(ar_py$SYSTEM_NO), 1986:2021) 
+names(comb) <- c('SYSTEM_NO', 'year')
+
+ar_py <- left_join(comb, ar_py) %>% 
+  group_by(SYSTEM_NO) %>% 
+  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+
+# now we interpolate the data
+
+ar_py_int <- ar_py %>% 
+  arrange(SYSTEM_NO, year) %>% 
+  group_by(SYSTEM_NO) %>%
+  mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
+         mean_ar = na.spline(mean_ar, 
+                             maxgap = 2,
+                             na.rm = FALSE),
+         n_obs = sum(is.na(mean_ar)))
+
+# what if we drop those with less than 10 observations: 42615
+
+ar_drought <- ar_py_int %>% 
+  ungroup() %>% 
+  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
+  group_by(SYSTEM_NO) %>% 
+  mutate(
+    d = mean_pdsi, 
+    dlead = lead(d),
+    dlead2 = lead(dlead),
+    dlag1 = lag(d),
+    dlag2 = lag(dlag1),
+    dlag3 = lag(dlag2),
+    dlag4 = lag(dlag3),
+    dlag5 = lag(dlag4),
+    dlag6 = lag(dlag5))
+
+# there is not a lot of arsenic in groundwater
+
+mod_s <-
+  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 | SYSTEM_NO + year | 0 | CITY,
+       data = ar_drought)
+
+summary(mod_s)
+
+# yay I think it works because I am having year FE and system SE and clustering at the city level
 
 ni_my <- ni %>% 
   filter(!is.na(countyName), WATER_TYPE == "G") %>% 
