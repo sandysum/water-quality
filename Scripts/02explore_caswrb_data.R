@@ -3,7 +3,7 @@
 # sandysum@ucsb.edu
 # 2021/09/04
 
-library(sp)
+library(sf)
 library(tidyverse)
 library(readr)
 library(readxl)
@@ -17,13 +17,10 @@ library(Hmisc)
 library(lfe)
 library(zoo)
 
-home <- "Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 
 # Read data in ------------------------------------------------------------
 
-sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
-loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
-  mutate(STATUS = str_to_upper(STATUS))
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
 
@@ -31,16 +28,20 @@ ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 
 dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
 names(dww) <- names(dww) %>% str_remove_all("\\s")
+soil <- read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_tibble()
 
 # read in gridded drought data
 
-pdsi <- readRDS("Google Drive/My Drive/0Projects/1Water/2Quality/Data/drought/pdsi_pws_monthyear.rds") %>% 
+pdsi <- readRDS(file.path(home, "drought/pdsi_pws_monthyear.rds")) %>% 
   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
          year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
+  # summarize to PWS - year
   group_by(SABL_PWSID, year) %>% 
   dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
 
-# sanity check
+
+# Look at a sub sample of drought time series for some PWS ----------------
+
 # can see reassuring patterns of drought that are congruent with historical california drought.
 set.seed(1028928)
 q <- sample(pdsi$SABL_PWSID, 6)
@@ -54,6 +55,55 @@ pdsi %>%
   geom_hline(yintercept = 0, color = 'red') +
   theme(axis.text.x = element_text(angle = 45)) +
   scale_color_brewer(palette = "Greens")
+
+
+# How many sample point does each PWS have? -------------------------------
+
+pws_stat <- ar %>% 
+  filter(!is.na(SYSTEM_NO)) %>% 
+  group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
+  summarise(num_spid = length(unique(samplePointID))) %>% 
+  arrange(desc(num_spid))
+
+# look at PWS with over 20 unique sample points
+pws_g_20 <- pws_stat %>% filter(WATER_TYPE == "G", num_spid > 19)
+
+set.seed(50927)
+q <- sample(pws_g_20$SYSTEM_NO, 6)
+quartz()
+ar %>% 
+  filter(SYSTEM_NO %in% q) %>% 
+  ggplot(aes(x = sampleDate, y = ar_ugl, group = samplePointID)) +
+  geom_line() +
+  theme_light() +
+  scale_x_continuous(breaks = seq(1980, 2022, 2)) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme(axis.text.x = element_text(angle = 45)) +
+  facet_wrap(vars(SYSTEM_NO), scales = "free")
+
+# Look at a sub sample of Arsenic time series for some PWS ---------------
+
+# RAW 
+set.seed(1028928)
+q <- sample(unique(ar$samplePointID), 1000)
+ar_sub <- ar %>% filter(samplePointID %in% q)
+
+spid_with_20_years <- subset_years(ar_sub, 2010, 2020, by =1)
+
+# 50 spid with 20 years of data
+set.seed(243)
+ar %>% 
+  filter(samplePointID %in% sample(spid_with_20_years, 12)) %>% 
+  ggplot(aes(x = year, y = ar_ugl)) +
+  geom_line() +
+  geom_point(size = .5) +
+  theme_light() +
+  scale_x_continuous(breaks = seq(1990, 2020, 2)) +
+  geom_hline(yintercept = 10, color = 'red') +
+  theme(axis.text.x = element_text(angle = 45)) +
+  facet_wrap(vars(samplePointID), nrow = 4, ncol = 3, scales = "free")
+
+
   
 # climdiv_cw <- read_csv("../Data/drought/ca_climdiv_crosswalk.csv") 
 #   

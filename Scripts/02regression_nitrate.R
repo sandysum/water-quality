@@ -6,7 +6,7 @@
 
 # Read in data ------------------------------------------------------------
 
-pdsi <- readRDS("Google Drive/My Drive/0Projects/1Water/2Quality/Data/drought/pdsi_pws_monthyear.rds") %>% 
+pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
   mutate(month = as.numeric(str_extract(my, "\\d{2}")),
          year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
   group_by(SABL_PWSID, year) %>% 
@@ -89,7 +89,8 @@ ni_py <- ni %>%
   group_by(SYSTEM_NO) %>%
   filter(n()>5) %>%
   ungroup() %>%
-  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99)))
+  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) %>% 
+  filter(cv==1)
 
 # prepping data for interpolation
 comb <- expand_grid(unique(ni_py$SYSTEM_NO), 1986:2021) 
@@ -133,13 +134,21 @@ ni_drought <- ni_py_int %>%
 
 # can I believe this model???
 
-mod_gw <-
-  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | CITY,
+mod_gw_noCV <-
+  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
+       data = ni_drought)
+mod_gw_CV <-
+  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
        data = ni_drought)
 
-summary(mod_gw)
+cv <- plot_reg(mod_gw_CV, contaminant = "n", 
+               main = "Groundwater response to unit increase in PDSI, \nCentral Valley CA only", nleads = 1, nlags = 6)
+noCV <- plot_reg(mod_gw_noCV, contaminant = "n", 
+                       main = "Groundwater response to unit increase in PDSI, \nall other CA", nleads = 1, nlags = 6)
 
-mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
+save_plot(filename = "Plots/n_pdsi_coefs_CV.png", plot_grid(cv, noCV, nrow = 1), base_asp = 2, nrow = 1, scale = 2.5)
+
+# mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
 
 .1/8.9
 
@@ -219,7 +228,7 @@ ni_drought <- ni_py_int %>%
 # if the previous model is to be believed, then there should be no relationship here
 
 mod_tr <-
-  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | CITY,
+  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
        data = ni_drought)
 
 summary(mod_tr)
@@ -300,7 +309,7 @@ ni_drought <- ni_py_int %>%
 # there is not a lot of arsenic in groundwater
 
 mod_s <-
-  felm(mean_n ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | CITY,
+  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
        data = ni_drought)
 
 summary(mod_s)
@@ -308,9 +317,9 @@ summary(mod_s)
 # Plot and save -----------------------------------------------------------
 
 
-plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nlags = 6)
+plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nleads = 1, nlags = 6)
 
-save_plot(file.path(home, "Plots/n_pdsi_coefs.png"), plot_grid(plotlist = plist, ncol = 1), base_asp = .7, scale = 3.5)
+save_plot("Plots/n_pdsi_coefs.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .5, scale = 3.9)
 
 # yay I think it works because I am having year FE and system SE and clustering at the city level
 

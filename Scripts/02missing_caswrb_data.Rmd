@@ -22,6 +22,7 @@ library(cowplot)
 library(tidyverse)
 library(readr)
 library(readxl)
+library(sf)
 library(lubridate)
 library(ggplot2)
 library(kableExtra)
@@ -46,14 +47,23 @@ ni <- read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
 
 pws_land <- read_sf("../../Data/1int/pws_sf_clay_ph.shp")
-pws <- read_sf("../../Data/SABL_Public_080221/SABL_Public_080221.shp")
+pws <- read_sf("../../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp")
 
 dww <- read_csv("../../Data/ca_drinkingwatersystems_meta.csv")
 ```
 
 # Summary of monitoring data so far
 
-There are `r length(unique(ar$SYSTEM_NO))` number of Public Water Systems (PWSs) in the CA AWRB monitoring data files with Arsenic monitoring data from `r min(ar$year, na.rm = TRUE)` to `r  min(ar$year, na.rm = TRUE)`. 
+There are `r length(unique(ar$SYSTEM_NO))` number of Public Water Systems (PWSs) in the CA AWRB monitoring data files with Arsenic monitoring data from `r min(ar$year, na.rm = TRUE)` to `r  max(ar$year, na.rm = TRUE)`. 
+
+```{r}
+ar %>% 
+  filter(!is.na(SYSTEM_NO)) %>% 
+  group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
+  summarise(num_spid = length(unique(samplePointID))) %>% 
+  arrange(desc(num_spid))
+```
+
 
 ```{r echo = FALSE, fig.height=4, fig.width=4.5}
 pws_summary <- ar %>% 
@@ -112,12 +122,6 @@ papeR::summarise(ni %>% mutate(has_shp = factor(has_shp)), type = 'numeric', gro
 ```
 
 The total number of observations we would drop is $\frac{40896}{321696} \approx 11.3\%$, which is not ideal. That would be dropping 2,708 PWSs too. 
-
-### Using ZIPCODE to match to geographical area
-
-```{r}
-ar <- ar %>% mutate(ZIP = if_else("00000"))
-```
 
 
 ### How frequent does each PWS samples? Is it tied to Arsenic level?

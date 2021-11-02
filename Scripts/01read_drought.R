@@ -16,7 +16,7 @@ library(thredds)
 
 # Read in datasets --------------------------------------------------------
 
-home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 # this was old and only have at the climdiv level
 
 # pdsi <- readRDS("../Data/drought/pdsi_ca_1970_2021.rds")

@@ -39,8 +39,7 @@ sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx"))
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
   mutate(STATUS = str_to_upper(STATUS))
 # read arsenic and nitrate data from the CA SWRB portal 
-# read arsenic and nitrate data from the CA SWRB portal 
-# read arsenic and nitrate data from the CA SWRB portal 
+
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
 ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
@@ -362,6 +361,11 @@ Each PWS (in dataset `sys`) has many monitoring locations denoted by their sampl
 ```{r echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '60%'}
 knitr::include_graphics("../../PresentationMaterial/dw_sys_ex.png")
 ```
+
+```{r}
+ar %>% mutate(type = paste0(WATER_TYPE, "-", STATUS)) %>% select(type) %>% table()
+```
+
 
 - Abandoned – AB
 A source which is no longer being used, with no intention of being used in the future, and which is not destroyed.

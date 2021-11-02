@@ -12,6 +12,7 @@ library(lfe)
 library(zoo)
 library(cowplot)
 library(DescTools)
+source("Scripts/helper_functions_models.R")
 
 home <- "../Data/"
 
@@ -29,6 +30,15 @@ pdsi <- readRDS(file.path(home,"/drought/pdsi_pws_monthyear.rds")) %>%
          year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
   group_by(SABL_PWSID, year) %>% 
   dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
+
+soil <- read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>% 
+  select(SYSTEM_NO = SABL_PWSID, clay, ph) %>% 
+  mutate(SYSTEM_NO = str_extract(SYSTEM_NO, "\\d+"),
+         ph_grp = cut_interval(ph, 3),
+         clay_grp = cut_interval(clay, 3)) 
+levels(soil$ph_grp) <- c('low', 'med', 'high')
+levels(soil$clay_grp) <- c('low', 'med', 'high')
+
 
 cv_counties <-
   c(
@@ -141,7 +151,9 @@ ar_drought <- ar_py_int %>%
     dlag3 = lag(dlag2),
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
+    dlag6 = lag(dlag5)) %>% 
+  # left_join(soil) %>% 
+  # mutate(high_clay = if_else(clay_grp=="high", 1,))
 
 # drop data / pws 
 
@@ -150,16 +162,15 @@ ar_drought <- ar_py_int %>%
 # can I believe this model???
 
 mod_gw <-
-  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year |
-         0 | ZIP,
-       data = ar_drought)
+  felm(mean_ar ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year |
+         0 | SYSTEM_NO, data = ar_drought)
 
 summary(mod_gw)
-plot_reg(mod_gw, contaminant = "ar", main = "Raw groundwater sources")
+plot_reg(mod_gw, contaminant = "ar", main = "Raw groundwater sources", nleads = 1, nlags = 5)
 
-mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
-
-.1/8.9
+# mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
+# 
+# .1/8.9
 
 # Regression PDSI on treated water ----------------------------------------
 
@@ -237,7 +248,7 @@ ar_drought <- ar_py_int %>%
 # if the previous model is to be believed, then there should be no relationship here
 
 mod_tr <-
-  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year | 0 | CITY,
+  felm(mean_ar ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year | 0 | SYSTEM_NO,
        data = ar_drought)
 
 summary(mod_tr)
@@ -318,7 +329,7 @@ ar_drought <- ar_py_int %>%
 # there is not a lot of arsenic in groundwater
 
 mod_s <-
-  felm(mean_ar ~ dlead2 + dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year | 0 | CITY,
+  felm(mean_ar ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | SYSTEM_NO + year | 0 | SYSTEM_NO,
        data = ar_drought)
 
 summary(mod_s)
@@ -326,7 +337,7 @@ summary(mod_s)
 
 # Plot and save -----------------------------------------------------------
 
-plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg)
+plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, nleads = 1, nlags = 5)
 
-save_plot("Plots/ar_pdsi_coefs.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .7, scale = 3.5)
+save_plot("Plots/ar_pdsi_coefs.png", plot_grid(plotlist = plist, ncol = 1), base_asp = 0.5, scale = 3.8)
 
