@@ -4,6 +4,13 @@
 # 2021/10/24
 # sandysum@ucsb.edu
 
+
+# Load packages -----------------------------------------------------------
+
+library(tidyverse)
+library(lfe)
+library(DescTools)
+
 # Read in data ------------------------------------------------------------
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
@@ -55,9 +62,26 @@ gold <-
 
 # Regression PDSI on raw groundwater ----------------------------------------
 
-# drop the duplicates!
+# Prep data for regression at the monitoring ID level
+# drop the duplicates! and keep only ground or surface water type. 
 
-ni <- ni %>% distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE)
+ni_reg <- ni %>% 
+  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
+  filter(WATER_TYPE %in% c("G", "S"), year > 1995) %>% 
+  mutate(groundwater = if_else(WATER_TYPE == "G", 1, 0) %>% as.factor(),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
+  group_by(samplePointID, year, SYSTEM_NO, countyName, SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw) %>% 
+  summarise(mean_n = mean(n_mgl, na.rm = TRUE),
+            median_n = median(n_mgl, na.rm = TRUE)) %>% 
+  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
+
+
+# Regression at the monitor month year level ------------------------------
+
+ni_reg <- ni 
+
+# Regression at the month year level --------------------------------------
+
 
 ni_py <- ni %>%
   # filter only to groundwater and raw sources
