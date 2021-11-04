@@ -2,4 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
-/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/
+/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/**
+*.pdf
+*.html
+*.png
+
