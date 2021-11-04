@@ -54,14 +54,16 @@ dww <- read_csv("../../Data/ca_drinkingwatersystems_meta.csv")
 
 # Summary of monitoring data so far
 
+### Arsenic
+
 There are `r length(unique(ar$SYSTEM_NO))` number of Public Water Systems (PWSs) in the CA AWRB monitoring data files with Arsenic monitoring data from `r min(ar$year, na.rm = TRUE)` to `r  max(ar$year, na.rm = TRUE)`. 
 
-```{r}
+```{r echo = FALSE, results = 'asis'}
 ar %>% 
   filter(!is.na(SYSTEM_NO)) %>% 
   group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
-  summarise(num_spid = length(unique(samplePointID))) %>% 
-  arrange(desc(num_spid))
+  dplyr::summarise(num_spid = length(unique(samplePointID))) %>% 
+  dplyr::arrange(SYSTEM_NO, desc(num_spid)) %>% kable(type = "html")
 ```
 
 

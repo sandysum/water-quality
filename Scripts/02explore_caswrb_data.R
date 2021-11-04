@@ -62,8 +62,8 @@ pdsi %>%
 pws_stat <- ar %>% 
   filter(!is.na(SYSTEM_NO)) %>% 
   group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
-  summarise(num_spid = length(unique(samplePointID))) %>% 
-  arrange(desc(num_spid))
+  dplyr::summarise(num_spid = length(unique(samplePointID))) %>% 
+  arrange(SYSTEM_NO, desc(num_spid))
 
 # look at PWS with over 20 unique sample points
 pws_g_20 <- pws_stat %>% filter(WATER_TYPE == "G", num_spid > 19)

@@ -17,157 +17,95 @@ knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(error = FALSE)
 knitr::opts_chunk$set(cache = FALSE)
 knitr::opts_chunk$set(fig.align = "center")
-library(sp)
 library(cowplot)
 library(tidyverse)
 library(readr)
+library(sf)
 library(readxl)
 library(readr)
 library(lubridate)
 library(ggplot2)
 library(kableExtra)
-library(tigris)
 library(DescTools)
 library(Hmisc)
 library(lfe)
-library(xtable)
+library(DT)
 home<- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 ```
 
 ```{r echo = FALSE}
-sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
-loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
-  mutate(STATUS = str_to_upper(STATUS))
-# read arsenic and nitrate data from the CA SWRB portal 
-
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
 ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
-ar_my <- ar %>% 
-  # filter only to groundwater
-  filter(WATER_TYPE=="G", year >= 1996) %>%
-  mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
-  group_by(SYSTEM_NO, countyName, cv, year, month, raw) %>%
-  summarise(median_ar = median(ar_ugl, na.rm = TRUE),
-            # should I winsorize or not? Other people just check if you 
-            mean_ar = mean(ar_ugl, na.rm = TRUE)) %>% 
-  ungroup()c_nm <- read_xlsx(file.path(home, "ca_water_qual/county_nms.xlsx")) %>% 
-  rename(countyName = COUNTY, countyID = `USER ID`, countyNumber = NUMBER)
-
-# read drought data from NOAA
-
-baseline <- readRDS("../../Data/ca_water_qual/ar_2006_levels.rds")
-
-# read in gridded drought data
-
-pdsi <- readRDS("../../Data/drought/pdsi_pws_monthyear.rds") %>% 
-  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-         year = as.numeric(str_extract(my, "\\d{4}$")))
   
-cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
-
+cv_counties <-c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
+pdsi <- read_rds("../../Data/drought/pdsi_pws_monthyear.rds")
 ```
 
-```{r echo = FALSE}
-
-
-# at this point probably gotta thing about dropping the pwss with only one observations
-
-# ar_my %>%
-#   ungroup() %>%
-#   dplyr::filter(SYSTEM_NO %in% sample(ar_my$SYSTEM_NO, 6)) %>%
-#   mutate(date = lubridate::dmy(paste0("01-", month, "-", year))) %>%
-#   ggplot(aes(
-#     date,
-#     mean_ar,
-#     color = factor(SYSTEM_NO),
-#     shape = factor(raw)
-#   )) +
-#   geom_line() +
-#   geom_point(aes(
-#     date,
-#     mean_ar,
-#     color = factor(SYSTEM_NO),
-#     shape = factor(raw)
-#   ), size = 2) +
-#   geom_vline(xintercept = lubridate::dmy('1-1-2006')) +
-#   theme_minimal() +
-#   scale_x_date(date_breaks = '6 months') +
-#   theme(axis.text.x = element_text(angle = 45))
-
-ar_my_drought <- ar_my %>% 
-  ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "month", "SYSTEM_NO")) %>% 
-  left_join(baseline) %>% 
-  mutate(mean_ar = Winsorize(mean_ar, na.rm = TRUE),
-         mean_pdsi2 = (mean_pdsi^2)*sign(mean_pdsi),
-         ar2006 = factor(ar2006, levels = c('low', 'med', 'high')))
-```
-
-
-# Contaminants {.tabset}
+# Contaminants and Summary {.tabset}
 
 ## Nitrate
 
-Estimate PWS wells nitrate levels interacted with land use and groundwater level. Does groundwater pollution move laterally underground? If so that means that the groundwater drawdown is non-excludable and non-rivarous and hence a form of unseen pollution that is exercabated by drought.
+There are 
 
-$$\begin{align*} N_{it} = \; & \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot LandUse_i\cdot GW_{it}  \\ & + \hat \beta_2 Drought_{t}\cdot LandUse_i + \beta_3LandUse_i\cdot GW_{it} 
- \\ & + \beta_4 Drought_{t}\cdot GW_{it} + \mathbf{x}_{it} \hat \gamma + \hat f_i(t) + \hat \epsilon_i\end{align*}$$
- 
-where $\hat \alpha_{i}$ are unit-speciﬁc ﬁxed effects that absorb the effect of all time-invariant factors that differ between units, including unobservables that could not be accounted for in the cross-sectional research design. $\hat f_i(t)$ are trends in the outcome data, often accounted for using period ﬁxed-effects and/or linear or polynomial time trends, which may be region- or unit-speciﬁc. $Drought_i$ is some measure of the extend of drought, $GW_{it}$ is groundwater drawdown, a measure of human adaptive behavior. 
+* 9,897 PWSs with
+* 26,577 unique sampling points which can be wells, surface water, or treated water
+* Those sampling points also each have a status associated with them, one of `r ni$STATUS %>% unique()`
 
-```{r,results='asis'}
-broom::tidy(mod_n) %>% kable()
+```{r}
+ni_stat <- ni %>% 
+  filter(!is.na(SYSTEM_NO)) %>% 
+  group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
+  dplyr::summarise(num_spid = length(unique(samplePointID))) %>% 
+  arrange(SYSTEM_NO, desc(num_spid))
 ```
 
-Now, I need to think about this equation more. But should $Drought$ be also a unit/region varying factor? I think it should be due to the paper I just ready by Levy et al (2021) form USGS.
-
-Also thinking of aggregating each unit to a hexagonal grid patter a la Levy et al. For this I have to contact Xander on spatial dynamics of groundwater pollution.
-
-```{r hex, echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '50%'}
-knitr::include_graphics("../../PresentationMaterial/hexagonal_grid.png")
+```{r,results='asis'}
+DT::datatable(ni_stat)
 ```
 
 ## Arsenic
 
-At this point I am thinking of two different chapters on water quality if time and data quality and access can allow it.
+There are 
 
-1. Arsenic and Public Health leveraging the Final Arsenic Rule (FAR) passed in 2001, enforced in 2006
-  - Comparing health outcomes in communities served by enforced PWSs vs communities served by private wells
-  - Comparing communities served by PWSs who complied with 2001 FAR with *similar* communities who were lucky to have low Ar levels from the start (fall in cancer rates?)
-  - Comparing communities served by PWSs who **did not** comply with with *similar* communities who were lucky to have low Ar levels from the start (relative rise in cancer rates?) Cannot compare to those who comply because they may be different.
-  
-2. Arsenic and Drought
+* 6,495 PWSs with
+* 20,875 unique sampling points which can be wells, surface water, or treated water
+* Those sampling points also each have a status associated with them, one of `r ni$STATUS %>% unique()`
 
-$$Ar_{it} = \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot WellDepth_i + \hat \beta_2 Drought_{t} + \mathbf{x}_{it} + \hat f_i(t) + \hat \epsilon_i$$
-
-  - Some kind of event study on raw/untreated well data and drought measure
-  
-I think that 2 is way more doable now but I am interested and excited by 1 too. For my "second year" paper I may just do a county level comparison by comparing rates of various cancers and identifying counties that are served by a single PWSs. County level health data is currently accessible. If I find results, that would justify and strengthen my application for data from the CDPH.
-
-**Median Arsenic level (in raw sources) and PDSI (blue) for Tulare/Madera county**
-
-```{r echo = FALSE, fig.height= 4}
-ar_my_drought %>% 
-  filter(countyName == "tulare", raw == 1) %>% 
-  ggplot(aes(date, median_ar)) +
-  geom_line() +
-  geom_line(aes(date, pdsi), color = 'blue') +
-  theme_minimal_hgrid() +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-
-ar_my_drought %>% 
-  filter(countyName == "madera", raw == 1) %>% 
-  ggplot(aes(date, median_ar)) +
-  geom_line() +
-  geom_line(aes(date, pdsi), color = 'blue') +
-  theme_minimal_hgrid() +
-  lims(y = c(-10, 75)) +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
+```{r}
+ar_stat <- ar %>% 
+  filter(!is.na(SYSTEM_NO)) %>% 
+  group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
+  dplyr::summarise(num_spid = length(unique(samplePointID))) %>% 
+  arrange(SYSTEM_NO, desc(num_spid))
 ```
+
+```{r,results='asis'}
+DT::datatable(ar_stat)
+```
+
+<!-- **Median Arsenic level (in raw sources) and PDSI (blue) for Tulare/Madera county** -->
+
+<!-- ```{r echo = FALSE, fig.height= 4} -->
+<!-- ar_my_drought %>%  -->
+<!--   filter(countyName == "tulare", raw == 1) %>%  -->
+<!--   ggplot(aes(date, median_ar)) + -->
+<!--   geom_line() + -->
+<!--   geom_line(aes(date, pdsi), color = 'blue') + -->
+<!--   theme_minimal_hgrid() + -->
+<!--   scale_x_date(date_breaks = "1 year", date_labels = "%Y") + -->
+<!--   theme(axis.text.x = element_text(angle = 45, hjust = 0.9)) -->
+
+<!-- ar_my_drought %>%  -->
+<!--   filter(countyName == "madera", raw == 1) %>%  -->
+<!--   ggplot(aes(date, median_ar)) + -->
+<!--   geom_line() + -->
+<!--   geom_line(aes(date, pdsi), color = 'blue') + -->
+<!--   theme_minimal_hgrid() + -->
+<!--   lims(y = c(-10, 75)) + -->
+<!--   scale_x_date(date_breaks = "1 year", date_labels = "%Y") + -->
+<!--   theme(axis.text.x = element_text(angle = 45, hjust = 0.9)) -->
+<!-- ``` -->
 
 # Datasets and Notes
 
@@ -187,9 +125,9 @@ The Safe Drinking Water Information System (SDWIS) contains information on publi
 
 ### PDSI Palmer's Drought Hydrological Data
 
-```{r counties, echo=FALSE, fig.align="center", fig.cap="CLimate division to counties", out.width = '100%'}
-knitr::include_graphics("../climdiv_counties.jpeg")
-```
+This new experimental implementation of the Palmer Drought Severity Index (PDSI) updates every 5 days using the high-resolution gridMET gridded research dataset and USDA STATSGO soils data. The PDSI is a standardized index based on a simplified soil water balance and estimates relative soil moisture conditions. The magnitude of PDSI indicates the severity of the departure from normal conditions. A PDSI value >4 represents very wet conditions, while a PDSI <-4 represents an extreme drought. 
+
+The PDSI for California at the PWS-month year level ranges from `r range(pdsi$mean_pdsi, na.rm = TRUE)`.
 
 ### CA CA Drinking Water System Area Boundaries
 
@@ -240,83 +178,6 @@ result causes the RAA to exceed the MCL at any sampling point (e.g., the samplin
 result is four times the MCL), the system is out of compliance with the MCL
 immediately.
 
-<!-- ## Arsenic and Drought (NWIS data - only measure of well depth and age) -->
-
-<!-- $$Ar_{it} = \hat \alpha_{i} + \hat \beta_1 Drought_{t} \cdot WellDepth_i + \hat \beta_2 Drought_{t} + \mathbf{x}_{it} + \hat \theta_t + \hat \epsilon_i$$ -->
-
-<!-- #### Well depth (m) and mean Ar relationship -->
-
-<!-- ```{r, fig.align="center", fig.width=5, fig.height=3} -->
-<!-- station_med <- arnwis %>% -->
-<!--   group_by(locationId, lat, lon) %>% -->
-<!--   summarise( -->
-<!--     well_depth = mean(wellDepth_m, na.rm = TRUE), -->
-<!--     age = mean((2021 - constructionDateYr), na.rm = TRUE), -->
-<!--     mean_ar_ugl_win = Winsorize(mean(value_ugL, na.rm = TRUE), maxval = 100), -->
-<!--     mean_ar_ugl = mean(value_ugL, na.rm = TRUE), -->
-<!--     max_ar_ugl = max(value_ugL, na.rm = TRUE) -->
-<!--   ) -->
-
-<!-- ggplot(station_med, aes(well_depth, mean_ar_ugl)) + -->
-<!--   geom_point() + -->
-<!--   theme_minimal() -->
-<!-- ``` -->
-
-<!-- #### Well age and mean Ar relationship -->
-
-<!-- ```{r, fig.align="center", fig.width=5, fig.height=3} -->
-<!-- station_med <- arnwis %>% -->
-<!--   group_by(locationId, lat, lon) %>% -->
-<!--   summarise( -->
-<!--     well_depth = mean(wellDepth_m, na.rm = TRUE), -->
-<!--     age = mean((2021 - constructionDateYr), na.rm = TRUE), -->
-<!--     mean_ar_ugl_win = Winsorize(mean(value_ugL, na.rm = TRUE), maxval = 100), -->
-<!--     mean_ar_ugl = mean(value_ugL, na.rm = TRUE), -->
-<!--     max_ar_ugl = max(value_ugL, na.rm = TRUE) -->
-<!--   ) -->
-
-<!-- ggplot(station_med, aes(well_depth, mean_ar_ugl)) + -->
-<!--   geom_point() + -->
-<!--   theme_minimal() -->
-<!-- ``` -->
-
-<!-- #### Distribution of deep wells in CA -->
-
-<!-- ```{r include = FALSE} -->
-<!-- station <- readRDS("../Data/1int/nwis_station.rds") -->
-<!-- ca <- counties("California", cb = TRUE) -->
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-<!-- ggplot() +  -->
-<!--   geom_sf(data = ca, color="black", -->
-<!--                    fill="white", size=0.25) + -->
-<!--   geom_point( -->
-<!--     data = station, -->
-<!--     aes(x = lon, y = lat, color = wellDepth_m), -->
-<!--     size = 1, -->
-<!--     alpha = .5 -->
-<!--   ) + -->
-<!--   scico::scale_color_scico(palette = "berlin") + theme_minimal() -->
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-<!-- arnwis_reg <- arnwis %>% mutate(well_age = 2021-constructionDateYr) %>%  -->
-<!--   group_by(locationId, lat, lon, year, well_age, wellDepth_m, AquiferName) %>%  -->
-<!--   summarise(mean_ar = mean(value_ugL, na.rm = TRUE)) %>%  -->
-<!--   # ungroup() %>%  -->
-<!--   left_join(drought %>% mutate(year = str_extract(MapDate,'\\d{4}') %>% as.numeric()) %>%  -->
-<!--               group_by(year) %>%  -->
-<!--               summarise(drought_index = mean(DSCI))) %>%  -->
-<!--   mutate(well_age = factor(well_age),  -->
-<!--          AquiferName = factor(AquiferName)) -->
-
-<!-- # mod <- felm(mean_ar ~ drought_index + wellDepth_m + year + locationId | 0 |0|0, data = arnwis_reg) -->
-
-<!-- ``` -->
-
 ## The 2001 Final Arsenic Rule (FAR)
 
 ### General Description
@@ -360,10 +221,6 @@ Each PWS (in dataset `sys`) has many monitoring locations denoted by their sampl
 
 ```{r echo=FALSE, fig.align="center", fig.cap="The EPA's standardized monitoring framework", out.width = '60%'}
 knitr::include_graphics("../../PresentationMaterial/dw_sys_ex.png")
-```
-
-```{r}
-ar %>% mutate(type = paste0(WATER_TYPE, "-", STATUS)) %>% select(type) %>% table()
 ```
 
 
