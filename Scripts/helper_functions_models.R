@@ -80,7 +80,8 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
   }
 }
 
-plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5) {
+plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5,
+                     ylm = c(-.04, .01)) {
   
   se <- mod$cse %>% as_tibble() %>% mutate(coef = names(mod$cse))
   x <- as_tibble(mod$coefficients) %>% mutate(coef = rownames(mod$coefficients)) %>%
@@ -107,6 +108,7 @@ plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5)
       labs(x = "\n Years since drought exposure \nPDSI: higher values more precip", subtitle = "Mean arsenic change (ug/L) per unit increase in PDSI\n", y = " ", title = main) +
       scale_x_continuous(breaks = c(-nleads:0, 1:nlags)) +
       scale_y_continuous(n.breaks = 6) +
+      lims(y=ylm) +
       theme(axis.text.x = element_text(size = 12, hjust = .9, vjust = .9),
             plot.background = element_rect(fill = "white", color = NA))
     
@@ -129,7 +131,7 @@ plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5)
       labs(x = "\n Years since drought exposure \nPDSI: higher values more precip", subtitle = "Mean nitrate change (mg/L) per unit increase in PDSI\n", y = " ", title = main) +
       scale_x_continuous(breaks = c(-nleads:0, 1:nlags)) +
       scale_y_continuous(n.breaks = 6) +
-      lims(y=c(-0.06, 0.021)) +
+      lims(y=ylm) +
       theme(axis.text.x = element_text(size = 12, hjust = .9, vjust = .9),
             plot.background = element_rect(fill = "white", color = NA))
   }
@@ -140,23 +142,18 @@ pollutant = ar; year_start = 2010; year_end = 2020
 
 # returns name of unique id that has observations in all the year that we define
 
-subset_years <- function(pollutant, year_start, year_end, by = 1) {
+subset_years <- function(year_start, pollutant, year_end, by = 1) {
  years_desired <- seq(year_start, year_end, by = by)
  
- id_list <- future.apply::future_lapply(unique(pollutant$samplePointID), function(x) {
-   years_id <- pollutant %>% 
-     filter(samplePointID==x, !is.na(ar_ugl)) %>% 
-     select(year) %>% 
-     arrange(year) %>% 
-     as_vector()
-   
-   if (all(years_desired %in% years_id)) {
-     return(x)
-   } else {
-     NULL
-   } 
- })
+ n_years <- seq(year_start, year_end, by = by) %>% length()
  
- id_list %>% compact() %>% unlist()
+ pollutant_int <- pollutant %>% 
+   group_by(samplePointID) %>% 
+   filter(n()>=n_years, min(year)<= year_start, max(year)>=year_end) %>% 
+   arrange(samplePointID, year) %>% 
+   mutate(diff_year = lead(year)-year) %>% 
+   filter(max(diff_year, na.rm = TRUE)==1)
+
+ return(pollutant_int)
   
 }

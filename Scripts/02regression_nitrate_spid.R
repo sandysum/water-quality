@@ -1,7 +1,7 @@
 
 # Nitrate regression ------------------------------------------------------
 
-# 2021/10/24
+# 2021/11/4
 # sandysum@ucsb.edu
 
 
@@ -11,6 +11,8 @@ library(tidyverse)
 library(lfe)
 library(DescTools)
 library(future.apply)
+library(cowplot)
+source("Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
 
@@ -70,18 +72,18 @@ gold <-
 ni_reg <- ni %>% 
   distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
   filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(n_mgl)) %>% 
-  mutate(groundwater = if_else(WATER_TYPE == "G", 1, 0) %>% as.factor(),
+  mutate(groundwater = if_else(WATER_TYPE == "G", 1, 0),
          cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
   group_by(groundwater, samplePointID, year, SYSTEM_NO, cv, countyName, 
-           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw) %>% 
+           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY) %>% 
   summarise(mean_n = mean(n_mgl, na.rm = TRUE),
             median_n = median(n_mgl, na.rm = TRUE)) %>% 
   mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
 
 # 2. Filter to balanced panel for year 1996 to 2021
 
-# this function subsets to only balanced panels
-ni_reg_balanced <- subset_years(1996, pollutant = ni_reg, 2020, 1)
+# this function subsets to only balanced panels that has the
+ni_reg_balanced <- subset_years(2000, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
@@ -96,32 +98,66 @@ ni_drought <- ni_reg_balanced %>%
     dlag3 = lag(dlag2),
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
+    dlag6 = lag(dlag5),
+    gXr = groundwater*raw) %>% 
+  mutate(groundwater = factor(groundwater),
+         raw = factor(raw),
+         SYSTEM_NO = factor(SYSTEM_NO)) %>% 
+  ungroup()
 
-# 
+# Run stacked regressions ---------------------------------------------------------
 
-# 2. Interpolate between max gap of two years -----------------------------
 
-comb <- expand_grid(unique(ni_reg$samplePointID), 1996:2021) 
-names(comb) <- c('samplePointID', 'year')
+mod_ni_stacked <- 
+  felm(mean_n ~ d + d:groundwater + d:raw | samplePointID + groundwater:SYSTEM_NO + raw:SYSTEM_NO | 0 | SYSTEM_NO, data = ni_drought)
 
-ni_full <- left_join(comb, ni_reg) %>% 
-  group_by(samplePointID) %>% 
-  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+summary(mod_ni_stacked)
 
-# now we interpolate the data
+stargazer::stargazer(mod_ni_stacked)
 
-ni_int <- ni_py %>% 
-  arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
-         mean_n = na.spline(mean_n, 
-                            maxgap = 2,
-                            na.rm = FALSE),
-         n_obs = sum(is.na(mean_n)))
+mod_ni_stacked2 <- 
+  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 +
+         d:groundwater + d:raw
+       + dlag1:groundwater
+       + dlag2:groundwater
+       + dlag3:groundwater
+       + dlag4:groundwater
+       + dlag5:groundwater
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw 
+       + dlag4:raw 
+       + dlag5:raw| samplePointID + raw:SYSTEM_NO + groundwater:SYSTEM_NO | 0 | SYSTEM_NO, data = ni_drought)
 
+summary(mod_ni_stacked2)
+
+stargazer::stargazer(mod_ni_stacked, mod_ni_stacked2)
+
+# Try running regression at the piecewise level ---------------------------
+
+ni_gw_raw <- ni_drought %>% filter(groundwater ==1, raw == 1, year > 1995)  
+
+mod_gw <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_gw_raw)
+
+ni_s_raw <- ni_drought %>% filter(groundwater ==0, raw == 1, year > 1995)  
+
+mod_s <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_s_raw)
+
+ni_tr <- ni_drought %>% filter(raw == 0, year > 1995)  
+
+mod_tr <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_tr)
+
+plot_reg(mod_s, contaminant = "n", 
+         main = "Nitrate (mg/L) response to +1 in PDSI, \nRegression at the sample point level", nleads = 0, nlags = 5, ylm = c(-.06, .08))
+
+# Plot and save -----------------------------------------------------------
+
+plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nleads = 0, nlags = 5, ylm = c(-.06, .08))
+
+save_plot("Plots/n_pdsi_coefs_spid.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .5, scale = 4)
 
 # Regression at the PWS year level --------------------------------------
+######################################################################################
 
 # Regression PDSI on raw groundwater ----------------------------------------
 
@@ -173,8 +209,8 @@ ni_py_int <- ni_py %>%
   group_by(SYSTEM_NO) %>%
   mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
          mean_n = na.spline(mean_n, 
-                             maxgap = 2,
-                             na.rm = FALSE),
+                            maxgap = 2,
+                            na.rm = FALSE),
          n_obs = sum(is.na(mean_n)))
 
 # 137532-118138 = 19394 is the number interpolated....
@@ -210,7 +246,7 @@ mod_gw_CV <-
 cv <- plot_reg(mod_gw_CV, contaminant = "n", 
                main = "Groundwater response to unit increase in PDSI, \nCentral Valley CA only", nleads = 1, nlags = 6)
 noCV <- plot_reg(mod_gw_noCV, contaminant = "n", 
-                       main = "Groundwater response to unit increase in PDSI, \nall other CA", nleads = 1, nlags = 6)
+                 main = "Groundwater response to unit increase in PDSI, \nall other CA", nleads = 1, nlags = 6)
 
 save_plot(filename = "Plots/n_pdsi_coefs_CV.png", plot_grid(cv, noCV, nrow = 1), base_asp = 2, nrow = 1, scale = 2.5)
 
@@ -270,8 +306,8 @@ ni_py_int <- ni_py %>%
   group_by(SYSTEM_NO) %>%
   mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
          mean_n = na.spline(mean_n, 
-                             maxgap = 2,
-                             na.rm = FALSE),
+                            maxgap = 2,
+                            na.rm = FALSE),
          n_obs = sum(is.na(mean_n)))
 
 # what if we drop those with less than 10 observations: 42615
