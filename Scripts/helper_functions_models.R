@@ -80,8 +80,7 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
   }
 }
 
-plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5,
-                     ylm = c(-.04, .01)) {
+plot_reg <- function(mod, main = " ", ylm = c(-.04, .01), contaminant = "ar", nleads = 2, nlags = 5) {
   
   se <- mod$cse %>% as_tibble() %>% mutate(coef = names(mod$cse))
   x <- as_tibble(mod$coefficients) %>% mutate(coef = rownames(mod$coefficients)) %>%
@@ -137,10 +136,11 @@ plot_reg <- function(mod, main = " ", contaminant = "ar", nleads = 2, nlags = 5,
   }
 }
 
-pollutant = ar; year_start = 2010; year_end = 2020
+pollutant = ar; year_start = 2012; year_end = 2020
 
 
-# returns name of unique id that has observations in all the year that we define
+# This function returns a dataset of either ni or ar that has *at least* subsequent years from year_start to year_end
+# it will return the other years of data too... should I make return a strictly balanced panel by also dropping the other years from before year_start and after year_end?
 
 subset_years <- function(year_start, pollutant, year_end, by = 1) {
  years_desired <- seq(year_start, year_end, by = by)
@@ -152,7 +152,7 @@ subset_years <- function(year_start, pollutant, year_end, by = 1) {
    filter(n()>=n_years, min(year)<= year_start, max(year)>=year_end) %>% 
    arrange(samplePointID, year) %>% 
    mutate(diff_year = lead(year)-year) %>% 
-   filter(max(diff_year, na.rm = TRUE)==1)
+   filter(max(diff_year, na.rm = TRUE)==1, year>=year_start, year <= year_end)
 
  return(pollutant_int)
   

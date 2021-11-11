@@ -63,7 +63,7 @@ gold <-
   ) %>%
   str_to_lower()
 
-# Regression at the monitor month year level ------------------------------
+# 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
 # 1. Prep data for regression at the monitoring ID level
 
@@ -83,7 +83,8 @@ ni_reg <- ni %>%
 # 2. Filter to balanced panel for year 1996 to 2021
 
 # this function subsets to only balanced panels that has the
-ni_reg_balanced <- subset_years(2000, pollutant = ni_reg, 2020, 1)
+
+ni_reg_balanced <- subset_years(2012, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
@@ -100,20 +101,37 @@ ni_drought <- ni_reg_balanced %>%
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
     gXr = groundwater*raw) %>% 
-  mutate(groundwater = factor(groundwater),
-         raw = factor(raw),
-         SYSTEM_NO = factor(SYSTEM_NO)) %>% 
+  mutate(
+    groundwater = factor(groundwater),
+    raw = factor(raw),
+    SYSTEM_NO = factor(SYSTEM_NO)
+  ) %>%
+  group_by(SYSTEM_NO, year) %>%
+  mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup()
+# Visualize annual trends within PWS --------------------------------------
+set.seed(12)
+q <- sample(unique(ni_drought$SYSTEM_NO), 12)
+quartz()
+ni_drought %>% 
+  filter(SYSTEM_NO %in% q) %>% 
+  ggplot(aes(x = year, y = mean_n, color = raw, group = samplePointID)) +
+  geom_line() +
+  geom_smooth(aes(group = SYSTEM_NO), method = 'lm') +
+  theme_light() +
+  scale_x_continuous(breaks = seq(2000, 2022, 2)) +
+  # geom_hline(yintercept = 10, color = 'red') +
+  theme(axis.text.x = element_text(angle = 45)) +
+  facet_wrap(vars(SYSTEM_NO), scales = "free")
 
-# Run stacked regressions ---------------------------------------------------------
-
+# 2. RUN stacked regressions ---------------------------------------------------------
 
 mod_ni_stacked <- 
-  felm(mean_n ~ d + d:groundwater + d:raw | samplePointID + groundwater:SYSTEM_NO + raw:SYSTEM_NO | 0 | SYSTEM_NO, data = ni_drought)
+  felm(mean_n ~ d + d:groundwater + d:raw | samplePointID | 0 | SYSTEM_NO, data = ni_drought)
 
 summary(mod_ni_stacked)
 
-stargazer::stargazer(mod_ni_stacked)
+#stargazer::stargazer(mod_ni_stacked)
 
 mod_ni_stacked2 <- 
   felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 +
@@ -127,32 +145,32 @@ mod_ni_stacked2 <-
        + dlag2:raw
        + dlag3:raw 
        + dlag4:raw 
-       + dlag5:raw| samplePointID + raw:SYSTEM_NO + groundwater:SYSTEM_NO | 0 | SYSTEM_NO, data = ni_drought)
+       + dlag5:raw| samplePointID + SYSTEM_NO*year | 0 | SYSTEM_NO, data = ni_drought)
 
 summary(mod_ni_stacked2)
 
 stargazer::stargazer(mod_ni_stacked, mod_ni_stacked2)
 
-# Try running regression at the piecewise level ---------------------------
+# 3. RUN piecewise regression ---------------------------
 
 ni_gw_raw <- ni_drought %>% filter(groundwater ==1, raw == 1, year > 1995)  
 
-mod_gw <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_gw_raw)
+mod_gw <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_gw_raw, weights = ni_gw_raw$n_spid)
 
-ni_s_raw <- ni_drought %>% filter(groundwater ==0, raw == 1, year > 1995)  
+ni_s_raw <- ni_drought %>% filter(groundwater == 0, raw == 1, year > 1995)  
 
-mod_s <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_s_raw)
+mod_s <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_s_raw, weights = ni_s_raw$n_spid)
 
 ni_tr <- ni_drought %>% filter(raw == 0, year > 1995)  
 
-mod_tr <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_tr)
+mod_tr <- felm(mean_n ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID | 0 | SYSTEM_NO, data = ni_tr, weights = ni_tr$n_spid)
 
-plot_reg(mod_s, contaminant = "n", 
+plot_reg(mod_tr, contaminant = "n", 
          main = "Nitrate (mg/L) response to +1 in PDSI, \nRegression at the sample point level", nleads = 0, nlags = 5, ylm = c(-.06, .08))
 
 # Plot and save -----------------------------------------------------------
 
-plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nleads = 0, nlags = 5, ylm = c(-.06, .08))
+plist <- pmap(list(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), list(c(-.06, .02), c(-.06, .02), c(-.06, .15))), plot_reg, contaminant = "n", nleads = 0, nlags = 5)
 
 save_plot("Plots/n_pdsi_coefs_spid.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .5, scale = 4)
 
