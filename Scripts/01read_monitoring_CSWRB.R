@@ -17,6 +17,55 @@ library(readxl)
 library(rdrobust)
 library(cowplot)
 
+
+
+soil <- sf::read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>% 
+  select(SYSTEM_NO = SABL_PWSID, clay, ph) %>% 
+  mutate(SYSTEM_NO = str_extract(SYSTEM_NO, "\\d+"),
+         ph_grp = cut_interval(ph, 2),
+         clay_grp = cut_interval(clay, 2)) 
+levels(soil$ph_grp) <- c('low', 'high')
+levels(soil$clay_grp) <- c('low', 'high')
+
+cv_counties <-
+  c(
+    'Butte',
+    'Colusa',
+    'Glenn',
+    'Fresno',
+    'Kern',
+    'Kings',
+    'Madera',
+    'Merced',
+    'Placer',
+    'San Joaquin',
+    'Sacramento',
+    'Shasta',
+    'Solano',
+    'Stanislaus',
+    'Sutter',
+    'Tehama',
+    'Tulare',
+    'Yolo',
+    'Yuba'
+  ) %>%
+  str_to_lower()
+gold <-
+  c(
+    'Butte',
+    "Amador",
+    'Calaveras',
+    'El Dorado',
+    'Mariposa',
+    'Nevada',
+    'Placer',
+    'Plumas',
+    'Sierra',
+    'Tuolumne',
+    'Yuba'
+  ) %>%
+  str_to_lower()
+
 ################### CLEAN AND SAVE FOR ARSENIC ######################
 # filter only code 01002 for ARSENIC
 chem74_99 <- read_csv(file.path(home, "ca_water_qual/chem_1974_1999.csv")) %>% filter(STORE_NUM == "01002")
@@ -64,6 +113,28 @@ rm(list = ls(pattern = 'chem'))
 
 saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2021.rds")
 
+
+# Clean and save Arsenic data for regression -----------------------------
+
+# Regression at the monitor month year level ------------------------------
+
+# 1. Prep data for regression at the monitoring ID level
+
+# drop the duplicates! and keep only ground or surface water type. 
+
+ar_reg <- ar %>% 
+  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE) %>% 
+  filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(ar_ugl)) %>% 
+  mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
+         cv = if_else(countyName %in% cv_counties, 1, 0),
+         gold = if_else(countyName %in% gold, 1, 0)) %>% 
+  group_by(gw, gold, samplePointID, year, SYSTEM_NO, cv, countyName, 
+           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY, WATER_TYPE) %>% 
+  summarise(mean_ar = mean(ar_ugl, na.rm = TRUE),
+            median_ar = median(ar_ugl, na.rm = TRUE)) %>% 
+  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99))) 
+
+saveRDS(ar_reg, "../Data/1int/caswrb_ar_reg.rds")
 
 # Read, clean, and save Nitrate data --------------------------------------
 
@@ -160,6 +231,19 @@ dups <- all_nitrate %>%
 rm(list = ls(pattern = 'chem.+'))
 
 saveRDS(all_nitrate, "../Data/1int/caswrb_n_1974-2021.rds")
+
+ni_reg <- ni %>% 
+  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
+  filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(n_mgl)) %>% 
+  mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
+         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
+  group_by(gw, samplePointID, year, SYSTEM_NO, cv, countyName, 
+           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY) %>% 
+  summarise(mean_n = mean(n_mgl, na.rm = TRUE),
+            median_n = median(n_mgl, na.rm = TRUE)) %>% 
+  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
+
+saveRDS(ni_reg, "../Data/1int/caswrb_ni_reg.rds")
 
 # chem %>% 
 #   group_by(year) %>% 

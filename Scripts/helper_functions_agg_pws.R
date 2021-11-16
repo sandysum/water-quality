@@ -16,11 +16,11 @@ library(DescTools)
 library(sf)
 library(lfe)
 
-clay <- raster("../Data/map_ca_clay.tif")
-ph <- raster("../Data/map_ca_ph.tif")
+clay <- raster("../Data/shp_soil/map_ca_clay.tif")
+ph <- raster("../Data/shp_soil/map_ca_ph.tif")
 pws_sf <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% filter(SHAPE_AREA > 0, SHAPE_LEN > 0) 
 pws <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% filter(SHAPE_AREA > 0, SHAPE_LEN > 0) %>% st_geometry()
-
+pws_sf_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% st_geometry()
 # pws_sub <- st_geometry(pws[1:3,])
 # 
 # plot(pws_sub)
@@ -28,6 +28,7 @@ pws <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% filter(S
 # pws_sub_spatial <- as(pws_sub, 'Spatial')
 
 pws_sp <- as(pws, 'Spatial')
+pws_sp_zip <- as(pws_sf_zip, 'Spatial')
 
 extract_one <-
   function(i, ras, pws) {
@@ -37,7 +38,7 @@ extract_one <-
 
 # Gen cPWS clay -----------------------------------------------------------
 
-clay_by_pws <- future_lapply(1:4827, FUN = extract_one, ras = clay, pws = pws_sp)
+clay_by_pws <- future_lapply(1:4490  , FUN = extract_one, ras = clay, pws = pws_sp)
 
 clay_by_pws_ls <- flatten(clay_by_pws) %>% unlist()
 

@@ -22,79 +22,17 @@ library(cowplot)
 source("Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
+pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
-pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
-  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-         year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
-  group_by(SABL_PWSID, year) %>% 
-  dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
-
-ar <-read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
+ar_reg <-read_rds(file.path(home, "1int/caswrb_ar_reg.rds"))
 
 soil <- sf::read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>% 
-  select(SYSTEM_NO = SABL_PWSID, clay, ph) %>% 
+  dplyr::select(SYSTEM_NO = SABL_PWSID, clay, ph) %>% 
   mutate(SYSTEM_NO = str_extract(SYSTEM_NO, "\\d+"),
-         ph_grp = cut_interval(ph, 3),
+         ph_grp = cut_interval(ph, 2),
          clay_grp = cut_interval(clay, 2)) 
-levels(soil$ph_grp) <- c('low', 'med', 'high')
+levels(soil$ph_grp) <- c('low', 'high')
 levels(soil$clay_grp) <- c('low', 'high')
-
-cv_counties <-
-  c(
-    'Butte',
-    'Colusa',
-    'Glenn',
-    'Fresno',
-    'Kern',
-    'Kings',
-    'Madera',
-    'Merced',
-    'Placer',
-    'San Joaquin',
-    'Sacramento',
-    'Shasta',
-    'Solano',
-    'Stanislaus',
-    'Sutter',
-    'Tehama',
-    'Tulare',
-    'Yolo',
-    'Yuba'
-  ) %>%
-  str_to_lower()
-gold <-
-  c(
-    'Butte',
-    "Amador",
-    'Calaveras',
-    'El Dorado',
-    'Mariposa',
-    'Nevada',
-    'Placer',
-    'Plumas',
-    'Sierra',
-    'Tuolumne',
-    'Yuba'
-  ) %>%
-  str_to_lower()
-
-# Regression at the monitor month year level ------------------------------
-
-# 1. Prep data for regression at the monitoring ID level
-
-# drop the duplicates! and keep only ground or surface water type. 
-
-ar_reg <- ar %>% 
-  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE) %>% 
-  filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(ar_ugl)) %>% 
-  mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
-  group_by(gw, samplePointID, year, SYSTEM_NO, cv, countyName, 
-           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY, WATER_TYPE) %>% 
-  summarise(mean_ar = mean(ar_ugl, na.rm = TRUE),
-            median_ar = median(ar_ugl, na.rm = TRUE)) %>% 
-  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99))) 
-
 # 2. Filter to balanced panel for year 1996 to 2021
 
 # this function subsets to only balanced panels
@@ -102,10 +40,12 @@ ar_reg_balanced <- subset_years(2010, pollutant = ar_reg, 2020, 1)
 
 ar_drought <- ar_reg_balanced %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
+  left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   left_join(soil) %>% 
   group_by(samplePointID) %>% 
   mutate(
+    highclay = if_else(clay_grp=="high", 1, 0),
+    highph = if_else(ph_grp=="high", 1, 0),
     d = mean_pdsi, 
     dlead = lead(d),
     dlead2 = lead(dlead),
@@ -115,9 +55,13 @@ ar_drought <- ar_reg_balanced %>%
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
-    gXr = gw*raw) %>% 
+    gXr = gw*raw,
+    gXrXc = gw*raw*highclay,
+    gXrXg = gw*raw*gold,
+    gXrXph = gw*raw*highph) %>% 
   mutate(gw = factor(gw),
          raw = factor(raw),
+         # gXr = factor(gXr),
          SYSTEM_NO = factor(SYSTEM_NO)) %>% 
   group_by(SYSTEM_NO, year, gw) %>% 
   mutate(n_spid = 1/(unique(samplePointID) %>% length())) %>% 
@@ -125,10 +69,10 @@ ar_drought <- ar_reg_balanced %>%
 
 
 # Visualize annual trends within PWS --------------------------------------
-set.seed(2)
-q <- sample(unique(ar_drought$SYSTEM_NO), 8)
+set.seed(8997)
+q <- sample(unique(ar_drought$SYSTEM_NO), 100)
 quartz()
-ar_drought %>% 
+p <- ar_drought %>% 
   filter(SYSTEM_NO %in% q) %>% 
   ggplot(aes(x = year, y = mean_ar, group = samplePointID, color = raw)) +
   geom_line() +
@@ -139,38 +83,199 @@ ar_drought %>%
   theme(axis.text.x = element_text(angle = 45)) +
   facet_wrap(vars(SYSTEM_NO), scales = "free")
 
-# Run stacked regressions -------------------------------------------------
+save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_ar.png", p, base_asp = 1.2, scale = 5)
 
-mod_ar_stacked <- 
-  felm(mean_ar ~ d + d:gXr | samplePointID + SYSTEM_NO:year | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+# 1. CONTEMPORANEOUS EFFECTS  -------------------------------------------------
 
-summary(mod_ar_stacked)
+mod_ar_1 <- 
+  felm(mean_ar ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
 
-stargazer::stargazer(mod_ni_stacked)
+summary(mod_ar_1)
 
-mod_ar_stacked2 <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 +
-         d:gw + d:raw
+mod_ar_2 <- 
+  felm(mean_ar ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_2)
+
+mod_ar_3 <- 
+  felm(mean_ar ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_3)
+
+mod_ar_4 <- 
+  felm(mean_ar ~ d + d:gw + d:raw + d:gXr + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_4)
+
+stargazer::stargazer(mod_ar_1, mod_ar_2, mod_ar_3, mod_ar_4, omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+
+# LAGGED EFFECTS ---------------------------------------------------
+
+mod_ar_lag1 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
+       + d:gw 
        + dlag1:gw
        + dlag2:gw
        + dlag3:gw
-       + dlag4:gw
-       + dlag5:gw
+       + d:raw 
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw
+| samplePointID + factor(year) | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag1)
+
+
+mod_ar_lag2 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
+       + d:gw 
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw 
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + year
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag2)
+
+mod_ar_lag3 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
+       + d:gw 
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw 
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw+ year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag3)
+
+stargazer::stargazer(mod_ar_lag1, mod_ar_lag2, mod_ar_lag3, omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+# mod4 include interaction terms for being groundwater and raw; 
+# might want to recode everything to factors or binary variable for easier interpretation.
+
+mod_ar_lag4 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
+       + d:gw 
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw 
        + dlag1:raw
        + dlag2:raw
        + dlag3:raw 
-       + dlag4:raw 
-       + dlag5:raw| samplePointID + SYSTEM_NO:year | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+       + d:gXr
+       + dlag1:gXr
+       + dlag2:gXr
+       + dlag3:gXr + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
 
-summary(mod_ar_stacked2)
+summary(mod_ar_lag4)
 
-stargazer::stargazer(mod_ni_stacked, mod_ni_stacked2)
+# this function outputs the following effects
+# raw gw, raw sw, treated gw, treated sw
+# only raw gw is impacted; increase in arsenic level!
+df <- sum_lags(mod_ar_lag4, int_terms = c('gXr', 'gw0', 'raw0', 'raw0|gw0'))
 
-# Try running regression at the piecewise level ---------------------------
 
-# Why does result change SO much when I add in pws-level linear trends and non-pws-level linear trends??? 
+# plot lagged effects
 
-# PWS level linear trends soak up all the effects of drought, suggest that drought's effect on Arsenic is driven by PWS level heterogeneity
+df <- sum_lags(mod_ar_lag3)
+save_plot("Plots/cumulative_lagged_effects_ar.png", plot_coeff(df), scale = 1, base_asp = 2)
+
+# GW X RAW X HIGHCLAY -----------------------------------------------------
+
+mod_ar_lag_clay1 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5
+       + d:gXrXc 
+       + dlag1:gXrXc
+       + dlag2:gXrXc
+       + dlag3:gXrXc
+       + dlag4:gXrXc
+       + dlag5:gXrXc
+       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag_clay1)
+
+
+mod_ar_lag_clay2 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5
+       + d:gXrXc 
+       + dlag1:gXrXc
+       + dlag2:gXrXc
+       + dlag3:gXrXc
+       + dlag4:gXrXc
+       + dlag5:gXrXc + year
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag_clay2)
+
+mod_ar_lag_clay3 <- 
+  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5
+       + d:gXrXc 
+       + dlag1:gXrXc
+       + dlag2:gXrXc
+       + dlag3:gXrXc
+       + dlag4:gXrXc
+       + dlag5:gXrXc + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+
+summary(mod_ar_lag_clay3)
+
+stargazer::stargazer(mod_ar_lag_clay1, mod_ar_lag_clay2, mod_ar_lag_clay3, omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+# GW X RAW X HIGHCLAY -----------------------------------------------------
+
+# in central valley
+
+mod_ar_lag_hiclay <- 
+  felm(mean_ar ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ar_drought %>% filter(highclay==1), weights = ar_drought[ar_drought$highclay==1,]$n_spid)
+
+summary(mod_ar_lag_hiclay)
+
+# non-central valley 
+
+mod_ni_lag_cv0 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==0), weights = ni_drought[ni_drought$cv==0,]$n_spid)
+
+
+summary(mod_ni_lag_cv0)
+
+stargazer::stargazer(mod_ni_lag_cv1, mod_ni_lag_cv0, omit = c('year'), single.row = TRUE,
+                     dep.var.lab
 
 # I can see that this heterogeneity is driven by claygroups
 

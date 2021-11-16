@@ -20,8 +20,10 @@ home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 # this was old and only have at the climdiv level
 
 # pdsi <- readRDS("../Data/drought/pdsi_ca_1970_2021.rds")
-pwss <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% 
-  filter(SHAPE_LEN > 0)
+pwss <-
+  read_sf(file.path(home, "/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp")) %>%
+  filter(SHAPE_LEN > 0) %>%
+  mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"))
 
 # Downlaoding from thredds server gridded PDSI data from the thredds server --------------------
 
@@ -51,7 +53,7 @@ ca_outline <- as(st_geometry(ca), Class="Spatial")
 plot(ca_outline)
 
 pdsi_ca <-
-  raster::brick("../Data/drought/pdsi.nc", varname = "daily_mean_palmer_drought_severity_index")
+  raster::brick(paste0(home, "drought/pdsi.nc"), varname = "daily_mean_palmer_drought_severity_index")
 
 # convert PDSI to month-year data
 
@@ -64,7 +66,7 @@ pdsi_date <- ymd_hms('1900-01-01 00:00:00') + days(as.numeric(str_extract(names(
 pdsi_date <- pdsi_date %>% as_date()
 names(pdsi_ca) <- as.character(pdsi_date)
 
-values(pdsi_ca[[3000]]) %>% range(na.rm = TRUE)
+raster::values(pdsi_ca[[3000]]) %>% range(na.rm = TRUE)
 
 #get the date from the names of the layers and extract the month
 indices <- format(pdsi_date, format = "%m%Y")
@@ -97,7 +99,55 @@ saveRDS(pdsi_ca_month, "../Data/drought/pdsi_grid_monthyear.rds")
 
 plot(pdsi_ca_month, 500)
 
-# aggregate to the pws-month-year level -----------------------------------
+# Spatial aggregation -1)PWS shapefile 2)PWS with no shapefile ------------
+
+# 1. aggregate to the pws-month-year level for those without shapefiles
+# in this case I am using either zipcode or counties shapefiles
+
+pws_meta <- read_csv('/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/SDWA-DL/SDWA_PUB_WATER_SYSTEMS.csv')
+
+ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+ar <-read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
+
+# identify pws with no shapefiles
+x <- unique(c(ni$SYSTEM_NO, ar$SYSTEM_NO))
+
+no_shp <- paste0("CA", unique(c(ni$SYSTEM_NO, ar$SYSTEM_NO))[!(unique(c(ni$SYSTEM_NO, ar$SYSTEM_NO)) %in% pwss$SYSTEM_NO)]) %>% as_tibble() %>% 
+  rename(PWSID = value) %>% 
+  left_join(pws_meta %>% select(PWSID, PWS_NAME, ADDRESS_LINE1, ADDRESS_LINE2, CITY_NAME, ZIP_CODE, COUNTRY_CODE)) %>%
+  left_join(dww %>% select(WaterSystemNo, PrincipalCountyServed), by = c('PWSID' = 'WaterSystemNo')) %>% 
+  mutate(zip = ZIP_CODE %>% str_extract("\\d{5}"))
+
+# download zip shapefile
+zip_shp <- tigris::zctas(cb = TRUE, starts_with = no_shp$ZIP_CODE %>% str_extract("\\d{2}") %>% unique())
+
+zip_shp <- zip_shp %>% filter(ZCTA5CE10%in%no_shp$zip) %>% 
+  left_join(no_shp, by = (c('ZCTA5CE10'='zip')))
+
+# extract for these shapes
+
+r.vals <- raster::extract(pdsi_ca_month, zip_shp)
+
+pws_pdsi_my <- map2(r.vals, zip_shp$PWSID, function(p, id) {
+  if (is.null(p)) {
+    return(NULL)
+  } else {  p %>% as.tibble() %>% gather(my, pdsi) %>% 
+    group_by(my) %>% 
+    summarise(mean_pdsi = mean(pdsi, na.rm = TRUE)) %>% 
+    mutate(SABL_PWSID = id)
+  }
+})
+
+pws_pdsi_my <- pws_pdsi_my %>% 
+  bind_rows() 
+
+saveRDS(pws_pdsi_my, "../Data/drought/pdsi_pws_monthyear_zip.rds")
+
+zip_shp <- zip_shp %>% rename(zip = ZCTA5CE10, address1 = ADDRESS_LINE1, address2 = ADDRESS_LINE2, county = PrincipalCountyServed)
+
+# pdsi_pws_year %>% group_by(SABL_PWSID, year) %>% distinct()
+
+# 2. aggregate to the pws-month-year level for those with shapefiles -----------------------------------
 
 # need to check if this is actually working!
 
@@ -108,7 +158,7 @@ r.vals <- raster::extract(pdsi_ca_month, pwss)
 p <- r.vals[[15]]
 
 pws_pdsi_my <- map2(r.vals, pwss$SABL_PWSID, function(p, id) {
-p %>% as.tibble() %>% gather(my, pdsi) %>% 
+p %>% as.tibble() %>% dplyr::gather(my, pdsi) %>% 
   group_by(my) %>% 
   summarise(mean_pdsi = mean(pdsi, na.rm = TRUE)) %>% 
   mutate(SABL_PWSID = id)
@@ -118,6 +168,38 @@ pws_pdsi_my <- pws_pdsi_my %>%
   bind_rows() 
 
 saveRDS(pws_pdsi_my, "../Data/drought/pdsi_pws_monthyear.rds")
+
+pdsi2 <- readRDS("../Data/drought/pdsi_pws_monthyear_zip.rds")
+pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") 
+pdsi_pws_year <- bind_rows(pdsi, pdsi2) %>% 
+  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
+         year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
+  group_by(SABL_PWSID, year) %>% 
+  dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE)) %>% 
+  mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"))
+
+saveRDS(pdsi_pws_year, file = "../Data/drought/pdsi_pws_year.rds")
+
+# randomly plot some shapefiles from the new zip code level dataset to check 
+
+set.seed(8067986)
+q <- sample(unique(pdsi$SABL_PWSID), 6)
+quartz()
+pdsi %>% 
+  # mutate(month = as.numeric(str_extract(my, "\\d{2}")),
+  #        year = as.numeric(str_extract(my, "\\d{4}$"))) %>%
+  # group_by(SABL_PWSID, year) %>%
+  # dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE)) %>%
+  # mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")) %>%
+  filter(SABL_PWSID %in% q) %>%
+  ggplot(aes(x = year, y = mean_pdsi, color = SABL_PWSID)) +
+  geom_line() +
+  theme_light() +
+  # geom_smooth(method = 'lm') +
+  # scale_x_continuous(breaks = seq(2010, 2022, 2)) +
+  # geom_hline(yintercept = 10, color = 'red') +
+  theme(axis.text.x = element_text(angle = 45)) +
+  ylim(c(-8, 8))
 
 # WHY DOES MY PDSI DATA GOES UP TO -12??? and 14??? NEED TO CHECK
 

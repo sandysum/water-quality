@@ -16,79 +16,21 @@ source("Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
 
-pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
-  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-         year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
-  group_by(SABL_PWSID, year) %>% 
-  dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
+pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
-ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
-
-cv_counties <-
-  c(
-    'Butte',
-    'Colusa',
-    'Glenn',
-    'Fresno',
-    'Kern',
-    'Kings',
-    'Madera',
-    'Merced',
-    'Placer',
-    'San Joaquin',
-    'Sacramento',
-    'Shasta',
-    'Solano',
-    'Stanislaus',
-    'Sutter',
-    'Tehama',
-    'Tulare',
-    'Yolo',
-    'Yuba'
-  ) %>%
-  str_to_lower()
-gold <-
-  c(
-    'Butte',
-    "Amador",
-    'Calaveras',
-    'El Dorado',
-    'Mariposa',
-    'Nevada',
-    'Placer',
-    'Plumas',
-    'Sierra',
-    'Tuolumne',
-    'Yuba'
-  ) %>%
-  str_to_lower()
+ni_reg <-read_rds(file.path(home, "1int/caswrb_ni_reg.rds"))
 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
-
-# 1. Prep data for regression at the monitoring ID level
-
-# drop the duplicates! and keep only ground or surface water type. 
-
-ni_reg <- ni %>% 
-  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
-  filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(n_mgl)) %>% 
-  mutate(groundwater = if_else(WATER_TYPE == "G", 1, 0),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
-  group_by(groundwater, samplePointID, year, SYSTEM_NO, cv, countyName, 
-           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY) %>% 
-  summarise(mean_n = mean(n_mgl, na.rm = TRUE),
-            median_n = median(n_mgl, na.rm = TRUE)) %>% 
-  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
 
 # 2. Filter to balanced panel for year 1996 to 2021
 
 # this function subsets to only balanced panels that has the
 
-ni_reg_balanced <- subset_years(2012, pollutant = ni_reg, 2020, 1)
+ni_reg_balanced <- subset_years(2001, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
+  left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   group_by(samplePointID) %>% 
   mutate(
     d = mean_pdsi, 
@@ -100,20 +42,25 @@ ni_drought <- ni_reg_balanced %>%
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
-    gXr = groundwater*raw) %>% 
+    gXr = gw*raw,
+    rXcv = raw*cv) %>% 
   mutate(
-    groundwater = factor(groundwater),
+    gw = factor(gw, levels = c("1", "0")),
     raw = factor(raw),
     SYSTEM_NO = factor(SYSTEM_NO)
   ) %>%
   group_by(SYSTEM_NO, year) %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup()
+
+ni_drought %>% drop_na()
+# A tibble: 17,232 × 29
+# A tibble: 18,276 × 29
 # Visualize annual trends within PWS --------------------------------------
-set.seed(12)
-q <- sample(unique(ni_drought$SYSTEM_NO), 12)
+set.seed(1297)
+q <- sample(unique(ni_drought$SYSTEM_NO), 100)
 quartz()
-ni_drought %>% 
+p <- ni_drought %>% 
   filter(SYSTEM_NO %in% q) %>% 
   ggplot(aes(x = year, y = mean_n, color = raw, group = samplePointID)) +
   geom_line() +
@@ -123,6 +70,139 @@ ni_drought %>%
   # geom_hline(yintercept = 10, color = 'red') +
   theme(axis.text.x = element_text(angle = 45)) +
   facet_wrap(vars(SYSTEM_NO), scales = "free")
+
+save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_n.png", p, base_asp = 1.2, scale = 5)
+
+# NO LAGGED EFFECTS  -------------------------------------------------
+
+# instantaneous effect is on the surface
+# mean contemporaneous effect of precip on raw GW, mean contemporaneous effect of precip on raw S, mean contemporaneous effect of precip on treated water
+mod_ni_1 <- 
+  felm(mean_n ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_1)
+
+mod_ni_2 <- 
+  felm(mean_n ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_2)
+
+mod_ni_3 <- 
+  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_3)
+
+mod_ni_4 <- 
+  felm(mean_n ~ d + d:gw + d:raw + d:gXr + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_4)
+
+stargazer::stargazer(mod_ni_1, mod_ni_2, mod_ni_3, mod_ni_4, omit = c(':year'), single.row = TRUE,
+                     dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+
+# ADDING LAGGED EFFECTS ---------------------------------------------------
+
+mod_ni_lag1 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw
+       # + d:gXr
+       # + dlag1:gXr
+       # + dlag2:gXr
+       # + dlag3:gXr
+       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag1)
+
+mod_ni_lag2 <- 
+  felm(mean_n ~ year + d + dlag1 + dlag2 + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + year
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag2)
+
+mod_ni_lag3 <- 
+  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag3)
+
+df <- sum_lags(mod_ni_lag3)
+save_plot("Plots/cumulative_lagged_effects_ni.png", plot_coeff(df, contaminant = 'ni'), scale = 1, base_asp = 2)
+
+stargazer::stargazer(mod_ni_lag1, mod_ni_lag2, mod_ni_lag3, omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+# GW X RAW X HIGHCLAY -----------------------------------------------------
+
+# in central valley
+
+mod_ni_lag_cv1 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==1), weights = ni_drought[ni_drought$cv==1,]$n_spid)
+
+summary(mod_ni_lag_cv1)
+
+# non-central valley 
+
+mod_ni_lag_cv0 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==0), weights = ni_drought[ni_drought$cv==0,]$n_spid)
+
+
+summary(mod_ni_lag_cv0)
+
+stargazer::stargazer(mod_ni_lag_cv1, mod_ni_lag_cv0, omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"),
+                     column.labels = c('In Central Valley', 'Outside of Central Valley'))
+
 
 # 2. RUN stacked regressions ---------------------------------------------------------
 

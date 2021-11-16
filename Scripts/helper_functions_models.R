@@ -157,3 +157,84 @@ subset_years <- function(year_start, pollutant, year_end, by = 1) {
  return(pollutant_int)
   
 }
+
+mod <- mod_ar_lag3
+
+sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), contaminant = "ar") {
+ x <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients))
+ vcov <- mod$clustervcv
+ # x %>% filter(str_detect(beta, "d$|dlag\\d$"))
+ 
+ # calculating point estimate for cumulative effect for gw-raw
+ 
+ coeff <- sum(x %>% filter(str_detect(beta, "d$|dlag\\d$")) %>% dplyr::select(1))
+ 
+ v <- 0
+ cv <- 0
+ 
+ # calculating cov for gw-raw term
+ 
+ for (i in 1:(nlags + 1)) {
+   v <- v + vcov[i, i]
+ }
+ 
+ for (i in 1:nlags) {
+   cv <- cv + sum(2 * vcov[i, (i + 1):(nlags + 1)])
+ }
+ 
+ se_d <- sqrt(cv+v)
+ # first interaction term calculates raw surface water
+ # second calculates treated groundwater
+ # third calculates treated surface water
+ for (j in int_terms) {
+   
+   coeff[length(coeff)+1] = sum(x %>% filter(str_detect(beta, j)) %>% dplyr::select(1)) + coeff[1]
+
+   ind <- row.names(vcov) %>% str_detect(j) %>% which()
+   vcov_tmp <- vcov[c(1:4, ind) , c(1:4, ind)]
+   
+   v <- 0
+   cv <- 0
+   
+   for (i in 1:(nrow(vcov_tmp))) {
+     v <- v + vcov_tmp[i, i]
+   }
+   
+   for (i in 1:(nrow(vcov_tmp)-1)) {
+     cv <- cv + sum(2 * vcov_tmp[i, (i + 1):nrow(vcov_tmp)])
+   }
+
+   se_d[length(se_d)+1] = sqrt(cv+v)
+ }
+  n <- mod$N
+  out <- tibble(est = coeff, se = se_d, coeff = c("d", int_terms)) %>% 
+    mutate(t_val = est/se,
+           pval = 2*pt(-abs(t_val),df=n-1))
+  return(out)
+}
+
+
+plot_coeff <- function(df, contaminant = 'ar') {
+  if (contaminant == 'ar') {
+    yl <- 'Change in mean Arsenic per pws (ug/l)'
+    t <- 'Cumulative effect of +1 in PDSI (wetter) \non annual mean Arsenic level'
+  } else {
+    yl <- 'Change in mean Nitrate per pws (mg/l)'
+    t <- 'Cumulative effect of +1 in PDSI (wetter) \non annual mean Nitrate level'
+  }
+  df <- df %>% mutate(x_ticks = c('Raw groundwater', 'Raw Surface', 'Treated Groundwater', 'Treated Surface'))
+  ggplot(df, aes(x=x_ticks, y = est)) +
+    geom_errorbar(aes(ymin=est-1.96*se, ymax=est+1.96*se), 
+                  width=.1) +
+    geom_hline(yintercept = 0, color = 'red') +
+    geom_point() +
+    theme_minimal_vgrid() +
+    ylim(c(-1, 1)) +
+    scale_y_continuous(n.breaks = 11) +
+    coord_flip() +
+    labs(x = ' ', y = yl, 
+         subtitle = t)
+}
+
+# save_plot("Plots/cumulative_lagged_effects_ar.png", plot_coeff(df), scale = 1,
+#           base_asp = 2)
