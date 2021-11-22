@@ -20,6 +20,9 @@ library(readr)
 pws <- read_csv(file.path(home, "/SDWA-DL/SDWA_PUB_WATER_SYSTEMS.csv"))
 dww <- read.csv("../Data/ca_drinkingwatersystems_meta.csv")
 violations <- read_csv(file.path(home, "/SDWA-data/SDWA_VIOLATIONS.csv"))
+write_csv(violations %>%  filter(STATE=="CA" & HEALTH_BASED == 'Y'), file.path(home, "/SDWA-data/SDWA_VIOLATIONS_CA.csv"))
+
+violations$RULE_NAME %>% table()
 
 pws_ni_vio <- violations %>% 
   filter(STATE=="CA" & RULE_NAME == "Nitrates" & HEALTH_BASED == "Y") %>% 
@@ -50,6 +53,15 @@ ni_vio_new <- pws_ni_vio %>% dplyr::select(SYSTEM_NO, PWSID, year = BEGIN_YEAR, 
   # summarise(n_new_violations = unique(VIOLATION_ID) %>% length())
   summarise(n_new_violations = n())
 
+
+# Plot nitrate violations -------------------------------------------------
+
+ni_vio_new %>% group_by(year) %>%
+  summarise(n_new_violations = n()) %>% 
+  ggplot(aes(year, n_new_violations)) +
+  geom_col() +
+  theme_minimal()
+
 # some violation ID span many years # if RTC year is NA means that the system never returned to compliant?
 # to make it easy look at new violations issued
 
@@ -76,7 +88,8 @@ reg_ni <- pdsi %>%
   group_by(SABL_PWSID) %>% 
   arrange(SABL_PWSID, year) %>% 
   mutate(
-    d = mean_pdsi, 
+    # d = mean_pdsi, 
+    d = if_else(mean_pdsi<=-1, 1, 0),
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -111,6 +124,13 @@ ar_vio_new <- pws_ar_vio %>% dplyr::select(SYSTEM_NO, PWSID, year = BEGIN_YEAR, 
   # summarise(n_new_violations = unique(VIOLATION_ID) %>% length())
   summarise(n_new_violations = n())
 
+pws_ar_vio %>% dplyr::select(SYSTEM_NO, PWSID, year = BEGIN_YEAR, VIOLATION_ID, VIOLATION_NAME, RULE_NAME) %>% 
+  group_by(year) %>% 
+summarise(n_new_violations = n()) %>% 
+  ggplot(aes(year, n_new_violations)) +
+  geom_col() +
+  theme_minimal()
+
 # The fiscal year might be the year in which these data were added into the system; yeah I think so 
 
 reg_ar <- pdsi %>% 
@@ -123,7 +143,8 @@ reg_ar <- pdsi %>%
   group_by(SABL_PWSID) %>% 
   arrange(SABL_PWSID, year) %>% 
   mutate(
-    d = mean_pdsi, 
+    # d = mean_pdsi, 
+    d = if_else(mean_pdsi<=-1, 1, 0),
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -141,7 +162,8 @@ reg_ar <- pdsi %>%
 
 # run regressions
 
-mod_vio_ar <- felm(n_new_violations ~ d + dlag1 + dlag2 + dlag3 + dlag4 | SABL_PWSID + year | 0 | SABL_PWSID, data = reg_ar)
+mod_vio_ar <- felm(n_new_violations ~ d + dlag1 + dlag2 + dlag3 + dlag4 + CITY_NAME:year | SABL_PWSID | 0 | SABL_PWSID, data = reg_ar)
+
 summary(mod_vio_ar)
 
 # mod_vio_ar_pop <- felm(n_new_violations ~ d + dlag1 + dlag2 + dlag3 | SABL_PWSID + year | 0  | SABL_PWSID, data = reg_ar %>% drop_na(Total.Population), weights = reg_ar$Total.Population[!is.na(reg_ar$Total.Population)])

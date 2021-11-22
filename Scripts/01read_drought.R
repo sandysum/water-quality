@@ -183,7 +183,7 @@ saveRDS(pdsi_pws_year, file = "../Data/drought/pdsi_pws_year.rds")
 # randomly plot some shapefiles from the new zip code level dataset to check 
 
 set.seed(8067986)
-q <- sample(unique(pdsi$SABL_PWSID), 6)
+q <- sample(unique(pdsi$SABL_PWSID), 10)
 quartz()
 pdsi %>% 
   # mutate(month = as.numeric(str_extract(my, "\\d{2}")),
@@ -192,15 +192,17 @@ pdsi %>%
   # dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE)) %>%
   # mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")) %>%
   filter(SABL_PWSID %in% q) %>%
-  ggplot(aes(x = year, y = mean_pdsi, color = SABL_PWSID)) +
+  ggplot(aes(x = year, y = mean_pdsi, group = SABL_PWSID)) +
   geom_line() +
-  theme_light() +
+  theme_minimal_hgrid() +
   # geom_smooth(method = 'lm') +
-  # scale_x_continuous(breaks = seq(2010, 2022, 2)) +
+  scale_x_continuous(breaks = seq(1974, 2022, 2)) +
   # geom_hline(yintercept = 10, color = 'red') +
   theme(axis.text.x = element_text(angle = 45)) +
-  ylim(c(-8, 8))
-
+  # ylim(c(-8, 8)) +
+  scale_y_continuous(breaks = seq(-8, 8, 1)) +
+  geom_hline(yintercept = -2)
+  
 # WHY DOES MY PDSI DATA GOES UP TO -12??? and 14??? NEED TO CHECK
 
 # This is old stuff from the county level PDSI data -----------------------

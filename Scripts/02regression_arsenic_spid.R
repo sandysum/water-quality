@@ -33,6 +33,7 @@ soil <- sf::read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>%
          clay_grp = cut_interval(clay, 2)) 
 levels(soil$ph_grp) <- c('low', 'high')
 levels(soil$clay_grp) <- c('low', 'high')
+
 # 2. Filter to balanced panel for year 1996 to 2021
 
 # this function subsets to only balanced panels
@@ -46,7 +47,7 @@ ar_drought <- ar_reg_balanced %>%
   mutate(
     highclay = if_else(clay_grp=="high", 1, 0),
     highph = if_else(ph_grp=="high", 1, 0),
-    d = mean_pdsi, 
+    d = mean_pdsi*-1, 
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -55,13 +56,11 @@ ar_drought <- ar_reg_balanced %>%
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
-    gXr = gw*raw,
-    gXrXc = gw*raw*highclay,
-    gXrXg = gw*raw*gold,
-    gXrXph = gw*raw*highph) %>% 
+    gXr = factor(gw*raw, levels = c("1","0")),
+    gXrXc = gw*raw*highclay) %>% 
   mutate(gw = factor(gw),
          raw = factor(raw),
-         # gXr = factor(gXr),
+         gXr = factor(gXr),
          SYSTEM_NO = factor(SYSTEM_NO)) %>% 
   group_by(SYSTEM_NO, year, gw) %>% 
   mutate(n_spid = 1/(unique(samplePointID) %>% length())) %>% 
@@ -183,14 +182,16 @@ summary(mod_ar_lag4)
 # this function outputs the following effects
 # raw gw, raw sw, treated gw, treated sw
 # only raw gw is impacted; increase in arsenic level!
-df <- sum_lags(mod_ar_lag4, int_terms = c('gXr', 'gw0', 'raw0', 'raw0|gw0'))
+
+df_int <- sum_lags(mod_ar_lag4, int_terms = c('gw0|gXr', 'raw0|gXr', 'raw0|gw0|gXr'))
 
 
 # plot lagged effects
 
 df <- sum_lags(mod_ar_lag3)
-save_plot("Plots/cumulative_lagged_effects_ar.png", plot_coeff(df), scale = 1, base_asp = 2)
 
+save_plot("../water-quality/Plots/cumulative_lagged_effects_ar.png", plot_coeff(df), scale = 1, base_asp = 2)
+save_plot("../water-quality/Plots/cumulative_lagged_effects_ar_interaction.png", plot_coeff(df_int), scale = 1, base_asp = 2)
 # GW X RAW X HIGHCLAY -----------------------------------------------------
 
 mod_ar_lag_clay1 <- 

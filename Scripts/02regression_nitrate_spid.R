@@ -33,7 +33,7 @@ ni_drought <- ni_reg_balanced %>%
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   group_by(samplePointID) %>% 
   mutate(
-    d = mean_pdsi, 
+    d = if_else(mean_pdsi <= -1, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -42,7 +42,7 @@ ni_drought <- ni_reg_balanced %>%
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
-    gXr = gw*raw,
+    gXr = factor(gw*raw, levels = c("1", '0')),
     rXcv = raw*cv) %>% 
   mutate(
     gw = factor(gw, levels = c("1", "0")),
@@ -152,7 +152,34 @@ mod_ni_lag3 <-
 
 summary(mod_ni_lag3)
 
-df <- sum_lags(mod_ni_lag3)
+mod_ni_lag4 <-
+  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       + dlag3:raw 
+       + d:gXr
+       + dlag1:gXr
+       + dlag2:gXr
+       + dlag3:gXr + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag4)
+# this function outputs the following effects
+# raw gw, raw sw, treated gw, treated sw
+# only raw gw is impacted; increase in arsenic level!
+
+df_int <- sum_lags(mod_ni_lag4, int_terms = c('gw0|gXr', 'raw0|gXr', 'raw0|gw0|gXr'))
+plot_coeff(df_int, contaminant = 'ni')
+# plot lagged effects
+
+df <- sum_lags(mod_ni_lag3, int_terms = c('gw0', 'raw0', 'gw0|raw0'))
+
+
 save_plot("Plots/cumulative_lagged_effects_ni.png", plot_coeff(df, contaminant = 'ni'), scale = 1, base_asp = 2)
 
 stargazer::stargazer(mod_ni_lag1, mod_ni_lag2, mod_ni_lag3, omit = c('year'), single.row = TRUE,
