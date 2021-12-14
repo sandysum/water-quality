@@ -6,7 +6,7 @@
 # sandysum@ucsb.edu
 
 # Load packages -----------------------------------------------------------
-
+rm(list = ls())
 library(tidyverse)
 library(lfe)
 library(DescTools)
@@ -17,14 +17,12 @@ source("Scripts/helper_functions_models.R")
 # Read in data ------------------------------------------------------------
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
-ar_reg <-read_rds(file.path(home, "1int/caswrb_ar_reg.rds"))
+ar_reg <-read_rds("../Data/1int/caswrb_ar_reg.rds")
 
-soil <- sf::read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>% 
-  dplyr::select(SYSTEM_NO = SABL_PWSID, clay, ph) %>% 
-  mutate(SYSTEM_NO = str_extract(SYSTEM_NO, "\\d+"),
-         ph_grp = cut_interval(ph, 2),
-         clay_grp = cut_interval(clay, 2)) 
-levels(soil$ph_grp) <- c('low', 'high')
+soil <- readRDS("../Data/1int/pws_clay_merged.rds") %>% 
+  mutate(clay_grp = cut_interval(avg_percent_clay, 2)) %>% 
+  drop_na()
+# levels(soil$ph_grp) <- c('low', 'high')
 levels(soil$clay_grp) <- c('low', 'high')
 
 # 2. Filter to balanced panel for year 1996 to 2021
@@ -39,7 +37,7 @@ ar_drought <- ar_reg_balanced %>%
   group_by(samplePointID) %>% 
   mutate(
     highclay = if_else(clay_grp=="high", 1, 0),
-    highph = if_else(ph_grp=="high", 1, 0),
+    # highph = if_else(ph_grp=="high", 1, 0),
     d = if_else(mean_pdsi <= -1, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
@@ -150,23 +148,10 @@ mod_ar_lag4 <-
 
 summary(mod_ar_lag4)
 
+saveRDS(mod_ar_lag4, "../Data/1int/ar_mod_lag4.rds")
+
 stargazer::stargazer(mod_ar_lag1, mod_ar_lag2, mod_ar_lag3, mod_ar_lag4, omit = c('year'), single.row = TRUE,
                      dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
-
-# this function outputs the following effects
-# raw gw, raw sw, treated gw, treated sw
-# only raw gw is impacted; increase in arsenic level!
-
-df_int <- sum_lags(mod_ar_lag4, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'))
-
-# plot lagged effects for no interaction models
-
-df <- sum_lags(mod_ar_lag3, int_terms = c('gw0', 'raw0', 'gw0|raw0'))
-
-save_plot("../water-quality/Plots/cumulative_lagged_effects_ar.png", 
-          plot_coeff(df, drought_measure = 'a moderate drought event'), scale = 1, base_asp = 2)
-save_plot("../water-quality/Plots/cumulative_lagged_effects_ar_interaction.png",
-          plot_coeff(df_int, drought_measure = 'a moderate drought event'), scale = 1, base_asp = 2)
 
 # GW X RAW X HIGHCLAY -----------------------------------------------------
 

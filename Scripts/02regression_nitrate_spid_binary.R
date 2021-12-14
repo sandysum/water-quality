@@ -13,7 +13,7 @@ library(DescTools)
 library(future.apply)
 library(cowplot)
 source("Scripts/helper_functions_models.R")
-
+options(digits=3)
 # Read in data ------------------------------------------------------------
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
@@ -43,7 +43,7 @@ ni_drought <- ni_reg_balanced %>%
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
     gXraw0 = factor(gw*(raw==0), levels = c('0', '1')),
-    rXcv = raw*cv) %>% 
+    gXraw = factor(gw*raw, levels = c('0', '1'))) %>% 
   mutate(
     gw = factor(gw, levels = c("1", "0")),
     raw = factor(raw),
@@ -53,25 +53,22 @@ ni_drought <- ni_reg_balanced %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup()
 
-ni_drought %>% drop_na()
-# A tibble: 17,232 × 29
-# A tibble: 18,276 × 29
 # Visualize annual trends within PWS --------------------------------------
-set.seed(1297)
-q <- sample(unique(ni_drought$SYSTEM_NO), 100)
-quartz()
-p <- ni_drought %>% 
-  filter(SYSTEM_NO %in% q) %>% 
-  ggplot(aes(x = year, y = mean_n, color = raw, group = samplePointID)) +
-  geom_line() +
-  geom_smooth(aes(group = SYSTEM_NO), method = 'lm') +
-  theme_light() +
-  scale_x_continuous(breaks = seq(2000, 2022, 2)) +
-  # geom_hline(yintercept = 10, color = 'red') +
-  theme(axis.text.x = element_text(angle = 45)) +
-  facet_wrap(vars(SYSTEM_NO), scales = "free")
-
-save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_n.png", p, base_asp = 1.2, scale = 5)
+# set.seed(1297)
+# q <- sample(unique(ni_drought$SYSTEM_NO), 100)
+# quartz()
+# p <- ni_drought %>% 
+#   filter(SYSTEM_NO %in% q) %>% 
+#   ggplot(aes(x = year, y = mean_n, color = raw, group = samplePointID)) +
+#   geom_line() +
+#   geom_smooth(aes(group = SYSTEM_NO), method = 'lm') +
+#   theme_light() +
+#   scale_x_continuous(breaks = seq(2000, 2022, 2)) +
+#   # geom_hline(yintercept = 10, color = 'red') +
+#   theme(axis.text.x = element_text(angle = 45)) +
+#   facet_wrap(vars(SYSTEM_NO), scales = "free")
+# 
+# save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_n.png", p, base_asp = 1.2, scale = 5)
 
 # NO LAGGED EFFECTS  -------------------------------------------------
 
@@ -165,68 +162,47 @@ mod_ni_lag4 <-
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_lag4)
-# this function outputs the following effects
-# raw gw, raw sw, treated gw, treated sw
-# only raw gw is impacted; increase in arsenic level!
-
-df_int <- sum_lags(mod_ni_lag4, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'))
-plot_coeff(df_int, contaminant = 'ni')
-# plot lagged effects
-
-df <- sum_lags(mod_ni_lag3, int_terms = c('gw0', 'raw0', 'gw0|raw0'))
-
-save_plot("Plots/cumulative_lagged_effects_ni_interations.png", plot_coeff(df_int, contaminant = 'ni', drought_measure = "moderate drought year"), scale = 1, base_asp = 2)
+saveRDS(mod_ni_lag4, "../Data/1int/ni_mod_lag4.rds")
 
 stargazer::stargazer(mod_ni_lag1, mod_ni_lag2, mod_ni_lag3, mod_ni_lag4, omit = c('year'), single.row = TRUE,
                      dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
 
-# GW X RAW X HIGHCLAY -----------------------------------------------------
+# GW X RAW X CV -----------------------------------------------------
 
 # in central valley
-
-mod_ni_lag_cv1 <- 
-  felm(mean_n ~ d
-       + dlag1
-       + dlag2
-       + dlag3
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
+# since there is not a lot of surface water nor treated GW observations in the filtered dataset in the CV, I look at the effects of being raw and groundwater compared to all other water types
+mod_ni_lag4_cv <-
+  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       + dlag3:raw 
-       + d:gXraw0
-       + dlag1:gXraw0
-       + dlag2:gXraw0
-       + dlag3:gXraw0 + SYSTEM_NO:year
+       + dlag3:raw + year:SYSTEM_NO
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==1), weights = ni_drought[ni_drought$cv==1,]$n_spid)
 
-summary(mod_ni_lag_cv1)
+summary(mod_ni_lag4_cv)
 
-x <- sum_lags(mod_ni_lag_cv1, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'))
-plot_coeff(x, contaminant = 'ni')
+df_int_cv <- sum_marginal(mod_ni_lag_cv1, nlags = 3, int_terms = c('raw0'), contaminant = 'n')
+
+plot_coeff_lags(df_int_cv[1:4,], contaminant = 'n', ylm =c(-0.1, 0.25))
 
 # non-central valley 
 
-mod_ni_lag_cv0 <- 
-  felm(mean_n ~ d
-       + dlag1
-       + dlag2
-       + dlag3
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
+mod_ni_lag4_cv0 <-
+  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       + dlag3:raw + SYSTEM_NO:year
+       + dlag3:raw + year:SYSTEM_NO
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==0), weights = ni_drought[ni_drought$cv==0,]$n_spid)
 
+summary(mod_ni_lag4_cv0)
 
-summary(mod_ni_lag_cv0)
+df_int_cv0 <- sum_lags(mod_ni_lag4_cv0, nlags = 3, int_terms = c('raw0'), contaminant = 'n')
+
+df_lag_cv0 <- sum_marginal(mod_ni_lag4_cv0, int_terms = c('raw0'), contaminant = 'n')
+
+plot_coeff(df_int_cv, contaminant = 'ni')
+plot_coeff_lags(df_lag_cv0[1:4,], type = 'raw ground/surface water', drought_measure = 'a drought year', contaminant = 'n', ylm = c(-0.1, 0.2))
 
 stargazer::stargazer(mod_ni_lag_cv1, mod_ni_lag_cv0, omit = c('year'), single.row = TRUE,
                      dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"),

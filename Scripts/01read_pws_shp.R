@@ -13,7 +13,15 @@ library(lubridate)
 # Read in datasets --------------------------------------------------------
 
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
-pws <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp")
+pws <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp")
+loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
+  mutate(STATUS = str_to_upper(STATUS))
+dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
+pws <- pws %>% left_join(loc %>% mutate(SABL_PWSID = paste0("CA", SYSTEM_NO)))
+pws <- pws %>% left_join(dww %>% mutate(SABL_PWSID = `Water System No`))
+
+write_sf(pws, "../Data/shp_PWS_SABL_Public_080221/shp_PWS_merge_dww.shp")
+
 cv_counties <-  c('Butte', 'Colusa', 'Glenn', 'Fresno', 'Kern', 'Kings', 'Madera', 'Merced', 'Placer', 'San Joaquin', 'Sacramento', 'Shasta', 'Solano', 'Stanislaus', 'Sutter', 'Tehama', 'Tulare', 'Yolo', 'Yuba') %>% str_to_lower()
 ca <- counties(state = "ca") %>% st_simplify(dTolerance = 10)
 object.size(pws)

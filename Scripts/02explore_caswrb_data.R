@@ -187,3 +187,16 @@ ni %>%
 
 # create sample-year data; need to do some kind of event study
 
+
+# Relationship between nitrate and arsenic --------------------------------
+# 2021/11/30
+
+all <- ni %>% select(samplePointID, sampleDate, n_mgl) %>% left_join(ar, by = c('samplePointID', 'sampleDate')) %>% drop_na(n_mgl, ar_ugl) %>% 
+  mutate(n_mgl_w = Winsorize(n_mgl, probs = c(0, .95)),
+         ar_ugl_w = Winsorize(ar_ugl, probs = c(0, .95))) %>% 
+  filter(WATER_TYPE=="G", raw==1)
+
+all %>% ggplot(aes(n_mgl_w, ar_ugl_w)) +
+  geom_point() +
+  geom_smooth()
+

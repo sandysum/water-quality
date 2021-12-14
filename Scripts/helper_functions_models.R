@@ -175,16 +175,9 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
  cv <- 0
  
  # calculating cov for gw-raw term
+ vcov_tmp <- vcov[1:4, 1:4]
  
- for (i in 1:(nlags + 1)) {
-   v <- v + vcov[i, i]
- }
- 
- for (i in 1:nlags) {
-   cv <- cv + sum(2 * vcov[i, (i + 1):(nlags + 1)])
- }
- 
- se_d <- sqrt(cv+v)
+ se_d <- sqrt(sum(vcov_tmp))
  
  # first interaction term calculates raw surface water
  # second calculates treated groundwater
@@ -196,19 +189,8 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
 
    ind <- row.names(vcov) %>% str_detect(j) %>% which()
    vcov_tmp <- vcov[c(1:4, ind) , c(1:4, ind)]
-   
-   v <- 0
-   cv <- 0
-   
-   for (i in 1:(nrow(vcov_tmp))) {
-     v <- v + vcov_tmp[i, i]
-   }
-   
-   for (i in 1:(nrow(vcov_tmp)-1)) {
-     cv <- cv + sum(2 * vcov_tmp[i, (i + 1):nrow(vcov_tmp)])
-   }
 
-   se_d[length(se_d)+1] = sqrt(cv+v)
+   se_d[length(se_d)+1] = sqrt(sum(vcov_tmp))
  }
   n <- mod$N
   out <- tibble(est = coeff, se = se_d, coeff = c("d", int_terms)) %>% 
@@ -217,6 +199,40 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
   return(out)
 }
 
+sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'), contaminant = "ar") {
+  df <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients)) %>% 
+    mutate(beta = str_replace(beta, "d$|d(?=:)", "dlag0"))
+  vcov <- mod$clustervcv
+  row.names(vcov) <- row.names(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
+  colnames(vcov) <-  colnames(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
+  # x %>% filter(str_detect(beta, "d$|dlag\\d$"))
+  
+  # calculating point estimate and se for gw-raw over time
+  coeff <- df %>% filter(str_detect(beta, "d$|dlag\\d$")) %>%
+    mutate(se = mod$cse[1:4], 
+           int_terms = " ")
+ # stuck here 2021/11/29 make sure that this works for all int_terms
+  out <- c()
+  for (j in 1:length(int_terms)) {
+    # now within each interaction terms we calculate for each lags
+    out[[j]] <- map(0:nlags, function(x){
+      
+      tmp <- df %>% filter(str_detect(beta, paste0("dlag", x))) %>%
+        filter(str_detect(beta, paste0("dlag", x, "$")) |
+                 str_detect(beta, int_terms[j]))
+      ind <- row.names(vcov) %in% tmp$beta %>% which()
+      vcov_tmp <- vcov[ind, ind]
+        tibble(
+          !!paste0('mean_', contaminant) := sum(tmp[,1]),
+          se = sqrt(sum(vcov_tmp)),
+          beta = paste0('dlag', x),
+          int_terms = int_terms[j]
+        )
+    }) %>% bind_rows()
+ 
+  } 
+  bind_rows(coeff, out)
+  }
 
 plot_coeff <-
   function(df,
@@ -254,6 +270,37 @@ plot_coeff <-
       scale_y_continuous(n.breaks = 11) +
       coord_flip() +
       labs(x = ' ', y = yl,
+           subtitle = t)
+  }
+
+plot_coeff_lags <-
+  function(df,
+           type = 'raw groundwater',
+           contaminant = 'ar',
+           drought_measure = '',
+           ylm = c(-1.6, 0.5)) {
+    if (contaminant == 'ar') {
+      c <- 'cadetblue2'
+      t <- paste0('Change in annual mean As (ug/l): \n', type)
+    } else {
+      c <- 'aquamarine2'
+      t <- paste0('Change in annual mean N (mg/l): \n', type)
+    }
+    df <-df %>% mutate(
+      Year = str_extract(beta, "\\d+") %>% as.integer()
+        ) %>% 
+      rename(est = !!paste0('mean_', contaminant))
+    
+    ggplot(df, aes(x = Year, y = est)) +
+      geom_ribbon(aes(ymin = est - 1.96 * se, ymax = est + 1.96 * se),
+                  fill = c, alpha = .3) +
+      geom_hline(yintercept = 0, color = 'red') +
+      geom_line() +
+      # geom_point() +
+      theme_minimal_vgrid() +
+      ylim(ylm) +
+      # coord_flip() +
+      labs(x = ' ', y = ' ',
            subtitle = t)
   }
 

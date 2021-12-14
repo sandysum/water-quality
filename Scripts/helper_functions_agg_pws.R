@@ -18,8 +18,9 @@ library(lfe)
 
 clay <- raster("../Data/shp_soil/map_ca_clay.tif")
 ph <- raster("../Data/shp_soil/map_ca_ph.tif")
-pws_sf <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% filter(SHAPE_AREA > 0, SHAPE_LEN > 0) 
+pws_sf <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") %>% filter(SHAPE_AREA > 0, SHAPE_LEN > 0) 
 pws <- read_sf("../Data/SABL_Public_080221/SABL_Public_080221.shp") %>% filter(SHAPE_AREA > 0, SHAPE_LEN > 0) %>% st_geometry()
+# pws_sf_zip is mutually exclusive of pws_sf
 pws_sf_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% st_geometry()
 # pws_sub <- st_geometry(pws[1:3,])
 # 
@@ -38,14 +39,57 @@ extract_one <-
 
 # Gen cPWS clay -----------------------------------------------------------
 
-clay_by_pws <- future_lapply(1:4490  , FUN = extract_one, ras = clay, pws = pws_sp)
+# now repeating the procedure for the zip shapefile
+clay_by_pws <- future_lapply(1:4490  , FUN = extract_one, ras = clay, pws = pws_sp_zip)
 
-clay_by_pws_ls <- flatten(clay_by_pws) %>% unlist()
+clay_by_pws_fl <- clay_by_pws %>% flatten()
 
-pws_sf$avg_percent_clay <- clay_by_pws_ls
+# there are zero elements and also NaNs in the nested list
+# the boolean test for NaN do not return a T or F if there are zero element in the list. It will throw an error. Hence, we have to first fix the \
+# list elements with zero element in it with an NA, and then that will return a FALSE for the NaN test, and we can fix the NaNs.
+# not sure how zero elements or NaNs got into this DF...
+out <- lapply(clay_by_pws_fl, (function(x) {
+  if (is.null(x) | length(x) == 0) {
+    NA
+  } else {
+    x
+  }
+}))
+out <- lapply(out, (function(x) {
+  if (is.nan(x)) {
+    NA
+  } else {
+    x
+  }
+}))
+
+out %>% unlist() %>% length()
+
+pws_sf_zip$avg_percent_clay <- clay_by_pws_ls
 
 # st_write(pws_sf, dsn = "../Data/1int/pws_sf_clay.shp")
+pws_sf_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp")
+pws_sf_zip_df <- pws_sf_zip %>% as_data_frame() %>% mutate(avg_percent_clay = out %>% unlist()) %>% 
+  dplyr::select(avg_percent_clay, PWSID) %>% 
+  mutate(SYSTEM_NO = str_extract(PWSID, "\\d+")) %>% 
+  distinct()
 
+# combine the zipcode-retrieved clay pct with pws shapefile-retrieved one
+soil <- sf::read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_data_frame() %>% 
+  dplyr::select(SYSTEM_NO = SABL_PWSID, avg_percent_clay = clay) %>% 
+  mutate(SYSTEM_NO = str_extract(SYSTEM_NO, "\\d+")) %>% 
+  bind_rows(pws_sf_zip_df %>% dplyr::select(-PWSID)) %>% distinct()
+
+# levels(soil$ph_grp) <- c('low', 'high')
+levels(soil$clay_grp) <- c('low', 'high')
+
+write_rds(soil, file = "../Data/1int/pws_clay_merged.rds")
+
+# Check for duplicates ----------------------------------------------------
+
+pws_sf_zip_df %>% group_by(SYSTEM_NO) %>% filter(n()>1)
+# 2 PWS has slightly different shapefiles
+pws_sf %>% group_by(SABL_PWSID) %>% filter(n()>1)
 
 # Gen PWS level PH --------------------------------------------------------
 
