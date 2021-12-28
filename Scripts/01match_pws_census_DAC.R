@@ -9,7 +9,6 @@
 rm(list = ls())
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
 # home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
-source("Scripts/helper_functions_models.R")
 
 # set up census api key: only required for first time
 
@@ -76,5 +75,64 @@ sys <- sys %>% left_join(cw, by ="ZIP") %>%
 
 write.csv(sys, file.path(home, "ca_water_qual/watsys_tract_socialeq_ind.csv")) 
 
-# 1485 is not in the census tract
-(!(sys$TRACT %in% ca_income$GEOID)) %>% sum()
+
+# Run some correlational analysis of social indicators --------------------
+
+ar_reg <- read_rds("../Data/1int/caswrb_ar_reg.rds")
+ni_reg <- read_rds("../Data/1int/caswrb_n_reg.rds")
+
+# Q1 are DAC getting worst raw water?
+ar_pws_10yr <- ar_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
+  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
+  summarize(pws_ar_mean = mean(mean_ar, na.rm = TRUE),
+            pws_ar_median = median(mean_ar, na.rm = TRUE)) %>% 
+  left_join(sys %>% select(SYSTEM_NO, TRACT, matches('USPS'), NAME, median_hh_income, 
+                           matches('total_'), matches('percent_'), income_category)) %>% 
+  ungroup() %>% 
+  mutate(pws_ar_mean = Winsorize(pws_ar_mean, probs = c(0, 0.99)),
+         log_hh_income = log(median_hh_income)) %>% 
+  group_by(TRACT) %>% 
+  mutate(n_pws = 1/n())
+
+ar_pws_10yr %>% ggplot(aes(percent_his, pws_ar_median)) +
+  geom_point(alpha = .5) +
+  geom_smooth() +
+  theme_minimal()
+
+mod_ar_ej_income <- felm(pws_ar_median ~ log_hh_income | 0 | 0 | TRACT, data = ar_pws_10yr, weights = ar_pws_10yr$n_pws)
+
+summary(mod_ar_ej_income)
+
+mod_ar_ej_percent_his <- felm(pws_ar_median ~ percent_his | 0 | 0 | TRACT, data = ar_pws_10yr, weights = ar_pws_10yr$n_pws)
+
+summary(mod_ar_ej_percent_his)
+
+# Q1 are DAC getting worst raw water?
+n_pws_10yr <- ni_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
+  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
+  summarize(pws_n_mean = mean(mean_n, na.rm = TRUE),
+            pws_n_median = median(mean_n, na.rm = TRUE)) %>% 
+  left_join(sys %>% select(SYSTEM_NO, TRACT, matches('USPS'), NAME, median_hh_income, 
+                           matches('total_'), matches('percent_'), income_category)) %>% 
+  ungroup() %>% 
+  mutate(pws_n_mean = Winsorize(pws_n_mean, probs = c(0, 0.99)),
+         log_hh_income = log(median_hh_income)) %>% 
+  group_by(TRACT) %>% 
+  mutate(n_pws = 1/n())
+
+n_pws_10yr %>% ungroup() %>% ggplot(aes(percent_his, pws_n_median)) +
+  geom_point(alpha = .5) +
+  geom_smooth() +
+  theme_minimal()
+
+mod_n_ej_income <- felm(pws_n_median ~ log_hh_income | 0 | 0 | TRACT, data = n_pws_10yr, weights = n_pws_10yr$n_pws)
+
+summary(mod_n_ej_income)
+
+mod_n_ej_percent_his <- felm(pws_n_median ~ percent_his | 0 | 0 | TRACT, data = n_pws_10yr, weights = n_pws_10yr$n_pws)
+
+summary(mod_n_ej_percent_his)
+
+stargazer::stargazer(mod_ar_ej_income, mod_ar_ej_percent_his,
+                     mod_n_ej_income, mod_n_ej_percent_his, 
+                     )

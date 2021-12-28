@@ -20,6 +20,11 @@ ni<- read_rds("../Data/1int/ni_mod_lag4.rds")
 df_int <- sum_lags(ar, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'))
 df_int_lags <- sum_marginal(ar, contaminant = 'ar', )
 
+ar_reg_balanced %>% group_by(raw, gw) %>% 
+  summarize(mean_n_ = mean(mean_ar, na.rm = TRUE),
+            n = n(),
+            sd_n = sd(mean_ar, na.rm = TRUE))
+
 plot_coeff(df_int,  drought_measure = 'a drought-year')
 # map the effects to 4 water source type and status
 a <- plot_coeff_lags(df_int_lags[1:4,], type = 'raw groundwater', drought_measure = 'a drought year', contaminant = 'ar')
@@ -45,6 +50,9 @@ d <- plot_coeff_lags(df_int_lags[13:16,], type = 'treated surface water', drough
 
 save_plot("Plots/20211202_lagged_n.png", plot_grid(plotlist = list(a,b,c,d), nrow = 2, labels = c('A', 'B', 'C', 'D')), base_asp = 1.6, scale = 1.6)
 
-
+ni_reg_balanced %>% group_by(raw, gw) %>% 
+  summarize(mean_n_ = mean(mean_n, na.rm = TRUE),
+            n = n(),
+            sd_n = sd(mean_n, na.rm = TRUE))
 
 

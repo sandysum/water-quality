@@ -19,7 +19,7 @@ options(digits=3)
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
 ni_reg <-read_rds(file.path(home, "1int/caswrb_ni_reg.rds"))
-
+ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
 # 2. Filter to balanced panel for year 1996 to 2021
