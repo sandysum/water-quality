@@ -26,9 +26,27 @@ library(sf)
 # Match PWS ZIPS to census tract and disadvantaged community --------------
 
 sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
+pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp")
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
   mutate(STATUS = str_to_upper(STATUS))
-cw <- read_xlsx(file.path(home, "shp_PWS_SABL_Public_080221/ZIP_TRACT_cross.xlsx"))
+# This crosswalk is a horrible aggregation to match PWS to census tract
+# today to start the matching of PWS to census tract by spatial overlaps
+
+# cw <- read_xlsx(file.path(home, "shp_PWS_SABL_Public_080221/ZIP_TRACT_cross.xlsx")) %>%
+#   filter(USPS_ZIP_PREF_STATE == 'CA')
+
+# Investigate crosswalk or lowest common denominator in PWS / trac --------
+
+zip_to_pws <- sys %>% group_by(ZIP) %>% 
+  summarise(n_pws = unique(SYSTEM_NO) %>% length()) %>% 
+  arrange(desc(n_pws))
+
+pws_to_zip <- sys %>% group_by(SYSTEM_NO) %>% 
+  summarise(n_zip = unique(ZIP) %>% length()) %>% 
+  arrange(desc(n_zip))
+
+# Download and clean census tract data for socio-economic 
+
 ca_stats <- get_acs(
   geography = "tract",
   # Median household income in the past 12 months (in 2019 inflation-adjusted dollars)
@@ -48,13 +66,26 @@ ca_stats <- ca_stats %>% mutate(variable_nm = case_when(
   TRUE ~ NA_character_
 )) %>% select(-moe, -variable)
 
-# what is the median family income in california?
+# 2450 ZIP CODES that match to 1 to 35 individual census tracts
+
+zip_to_tract <- sys %>% group_by(ZIP) %>% 
+  summarise(n_tracts = unique(TRACT) %>% length())
 
 # generating some social equality metrics
 ca_stats <- ca_stats %>% spread(key = variable_nm, value = estimate)
 ca_stats <- ca_stats %>% mutate(percent_non_white = (total_pop - total_pop_white)/total_pop,
                                 percent_his = total_pop_latino/total_pop,
-                                income_category = cut_number(median_hh_income, 8, labels = paste0('income_percentile', 1:8)))
+                                income_category = cut_number(median_hh_income, 8, labels = paste0('income_percentile', 1:8))) %>% 
+  left_join(cw, by = c('TRACT'='GEOID') )
+
+ca_stats_zip <- ca_stats 
+
+# plot relationship between percent hispanic and income
+
+ggplot(data = ca_stats, aes(percent_non_white, median_hh_income)) +
+  geom_point() +
+  theme_minimal() +
+  geom_smooth()
 
 # plot income categories
 quartz()
@@ -75,64 +106,16 @@ sys <- sys %>% left_join(cw, by ="ZIP") %>%
 
 write.csv(sys, file.path(home, "ca_water_qual/watsys_tract_socialeq_ind.csv")) 
 
+# How many tracts are to a PWS?
 
-# Run some correlational analysis of social indicators --------------------
+tract_sys <- sys %>% group_by(SYSTEM_NO) %>% 
+  summarize(n_tracts = n()) 
 
-ar_reg <- read_rds("../Data/1int/caswrb_ar_reg.rds")
-ni_reg <- read_rds("../Data/1int/caswrb_n_reg.rds")
+tract_sys$n_tracts %>% hist(breaks = 30)
 
-# Q1 are DAC getting worst raw water?
-ar_pws_10yr <- ar_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
-  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
-  summarize(pws_ar_mean = mean(mean_ar, na.rm = TRUE),
-            pws_ar_median = median(mean_ar, na.rm = TRUE)) %>% 
-  left_join(sys %>% select(SYSTEM_NO, TRACT, matches('USPS'), NAME, median_hh_income, 
-                           matches('total_'), matches('percent_'), income_category)) %>% 
-  ungroup() %>% 
-  mutate(pws_ar_mean = Winsorize(pws_ar_mean, probs = c(0, 0.99)),
-         log_hh_income = log(median_hh_income)) %>% 
-  group_by(TRACT) %>% 
-  mutate(n_pws = 1/n())
+# How many PWS to a tract?
 
-ar_pws_10yr %>% ggplot(aes(percent_his, pws_ar_median)) +
-  geom_point(alpha = .5) +
-  geom_smooth() +
-  theme_minimal()
+pws_sys <- sys %>% group_by(TRACT) %>% 
+  summarize(n_pws = n()) 
 
-mod_ar_ej_income <- felm(pws_ar_median ~ log_hh_income | 0 | 0 | TRACT, data = ar_pws_10yr, weights = ar_pws_10yr$n_pws)
-
-summary(mod_ar_ej_income)
-
-mod_ar_ej_percent_his <- felm(pws_ar_median ~ percent_his | 0 | 0 | TRACT, data = ar_pws_10yr, weights = ar_pws_10yr$n_pws)
-
-summary(mod_ar_ej_percent_his)
-
-# Q1 are DAC getting worst raw water?
-n_pws_10yr <- ni_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
-  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
-  summarize(pws_n_mean = mean(mean_n, na.rm = TRUE),
-            pws_n_median = median(mean_n, na.rm = TRUE)) %>% 
-  left_join(sys %>% select(SYSTEM_NO, TRACT, matches('USPS'), NAME, median_hh_income, 
-                           matches('total_'), matches('percent_'), income_category)) %>% 
-  ungroup() %>% 
-  mutate(pws_n_mean = Winsorize(pws_n_mean, probs = c(0, 0.99)),
-         log_hh_income = log(median_hh_income)) %>% 
-  group_by(TRACT) %>% 
-  mutate(n_pws = 1/n())
-
-n_pws_10yr %>% ungroup() %>% ggplot(aes(percent_his, pws_n_median)) +
-  geom_point(alpha = .5) +
-  geom_smooth() +
-  theme_minimal()
-
-mod_n_ej_income <- felm(pws_n_median ~ log_hh_income | 0 | 0 | TRACT, data = n_pws_10yr, weights = n_pws_10yr$n_pws)
-
-summary(mod_n_ej_income)
-
-mod_n_ej_percent_his <- felm(pws_n_median ~ percent_his | 0 | 0 | TRACT, data = n_pws_10yr, weights = n_pws_10yr$n_pws)
-
-summary(mod_n_ej_percent_his)
-
-stargazer::stargazer(mod_ar_ej_income, mod_ar_ej_percent_his,
-                     mod_n_ej_income, mod_n_ej_percent_his, 
-                     )
+pws_sys$n_pws %>% hist(breaks = 30)

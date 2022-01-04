@@ -18,8 +18,9 @@ options(digits=3)
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
-ni_reg <-read_rds(file.path(home, "1int/caswrb_ni_reg.rds"))
-ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
+ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
+# ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
 # 2. Filter to balanced panel for year 1996 to 2021
@@ -53,6 +54,15 @@ ni_drought <- ni_reg_balanced %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup()
 
+
+# Read in and join to social eq ind ---------------------------------------
+# Added this part to run some regression to join social eq indicator
+
+sys <- read_csv(file.path(home, "ca_water_qual/watsys_tract_socialeq_ind.csv")) %>% 
+  mutate(b_majority_latino = if_else(percent_his >= .5, 1, 0),
+         b_low_income = if_else(median_hh_income <=46000, 1, 0))
+
+ni_reg_balanced <- ni_reg_balanced %>% dplyr::left_join(sys, by = "SYSTEM_NO")
 # Visualize annual trends within PWS --------------------------------------
 # set.seed(1297)
 # q <- sample(unique(ni_drought$SYSTEM_NO), 100)
@@ -74,21 +84,26 @@ ni_drought <- ni_reg_balanced %>%
 
 # instantaneous effect is on the surface
 # mean contemporaneous effect of precip on raw GW, mean contemporaneous effect of precip on raw S, mean contemporaneous effect of precip on treated water
+
+# mod 1: spid FEs and year FE
 mod_ni_1 <- 
   felm(mean_n ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_1)
 
+# mod 2: spid FEs and linear year FE
 mod_ni_2 <- 
   felm(mean_n ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_2)
 
+# mod 3: spid FEs and PWS specific linear year FEs
 mod_ni_3 <- 
   felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_3)
 
+# mod 3: spid FEs and PWS specific year FEs
 mod_ni_4 <- 
   felm(mean_n ~ d + d:gw + d:raw + d:gXraw0 + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 

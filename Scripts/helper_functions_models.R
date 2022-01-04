@@ -148,6 +148,7 @@ subset_years <- function(year_start, pollutant, year_end, by = 1) {
  n_years <- seq(year_start, year_end, by = by) %>% length()
  
  pollutant_int <- pollutant %>% 
+   filter(year>=year_start) %>% 
    group_by(samplePointID) %>% 
    filter(n()>=n_years, min(year)<= year_start, max(year)>=year_end) %>% 
    arrange(samplePointID, year) %>% 

@@ -1,0 +1,8 @@
+"0","ar %>% 
+  filter(!is.na(SYSTEM_NO)) %>% 
+  group_by(SYSTEM_NO, WATER_TYPE, STATUS) %>% 
+  dplyr::summarise(num_spid = length(unique(samplePointID))) %>% 
+  dplyr::arrange(SYSTEM_NO, desc(num_spid)) %>% kable(type = ""html"")
+"
+"1","`summarise()` has grouped output by 'SYSTEM_NO', 'WATER_TYPE'. You can override using the `.groups` argument.
+"

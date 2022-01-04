@@ -117,8 +117,10 @@ saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2021.rds")
 # 1. Prep data for regression at the monitoring ID level
 
 # drop the duplicates! and keep only ground or surface water type. 
-
+ar_reg <- readRDS("../Data/1int/caswrb_ar_1974-2021.rds")
 ar_reg <- ar_reg %>% 
+  # I think that it is more correct to winsorize before taking means and medians
+  mutate(ar_ugl = Winsorize(ar_ugl, probs = c(0, .99))) %>% 
   distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE) %>% 
   filter(WATER_TYPE %in% c("G", "S"), !is.na(ar_ugl)) %>% 
   mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
@@ -126,9 +128,8 @@ ar_reg <- ar_reg %>%
          gold = if_else(countyName %in% gold, 1, 0)) %>% 
   group_by(gw, gold, samplePointID, year, SYSTEM_NO, cv, countyName, 
            SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY, WATER_TYPE) %>% 
-  summarise(mean_ar = mean(ar_ugl, na.rm = TRUE),
-            median_ar = median(ar_ugl, na.rm = TRUE)) %>% 
-  mutate(mean_ar = Winsorize(mean_ar, probs = c(0, .99))) 
+  summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
+            median_as = median(ar_ugl, na.rm = TRUE)) 
 
 saveRDS(ar_reg, "../Data/1int/caswrb_ar_reg.rds")
 
@@ -228,7 +229,11 @@ rm(list = ls(pattern = 'chem.+'))
 
 saveRDS(all_nitrate, "../Data/1int/caswrb_n_1974-2021.rds")
 
+# Tidy save N data at the spid and year level -----------------------------
+
+n_reg <- readRDS("../Data/1int/caswrb_n_1974-2021.rds")
 n_reg <- n_reg %>% 
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>% 
   distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
   filter(WATER_TYPE %in% c("G", "S"), !is.na(n_mgl)) %>% 
   mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
@@ -236,8 +241,7 @@ n_reg <- n_reg %>%
   group_by(gw, samplePointID, year, SYSTEM_NO, cv, countyName, 
            SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY) %>% 
   summarise(mean_n = mean(n_mgl, na.rm = TRUE),
-            median_n = median(n_mgl, na.rm = TRUE)) %>% 
-  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
+            median_n = median(n_mgl, na.rm = TRUE))
 
 saveRDS(n_reg, "../Data/1int/caswrb_n_reg.rds")
 
