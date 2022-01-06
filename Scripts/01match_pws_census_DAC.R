@@ -34,8 +34,7 @@ pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") 
 
 pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
   st_transform(ca_crs)
-loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
-  mutate(STATUS = str_to_upper(STATUS))
+
 # This crosswalk is a horrible aggregation to match PWS to census tract
 # today to start the matching of PWS to census tract by spatial overlaps
 
@@ -105,16 +104,20 @@ pws_shp <- pws_shp %>% filter(!(SABL_PWSID %in% c("CA5510009", "CA1010007"))) %>
   bind_rows(merge_dups)
 
 class(pws_shp)
-write_sf(pws_shp, "../Data/shp_PWS_SABL_Public_080221/shp_Pws")
-
-sys_with_ej <- sys %>% left_join(pws_shp %>% st_drop_geometry() %>% 
-  mutate(SYSTEM_NO = str_extract(SABL_PWSID, '\\d+'))) %>% 
-  filter(SYSTEM_NO %in% str_extract(pws_shp$SABL_PWSID, '\\d+'))
 
 # for those without shapefile use zip
 
 x <- aggregate(ca_stats[c('median_hh_income', 'percent_his', 'total_pop', 'percent_non_white')], by = st_geometry(pws_zip), mean, areaWeighted = TRUE) 
 
+pws_zip <- pws_zip %>% bind_cols(x %>% st_drop_geometry())
+
+pws_ej <- pws_zip %>% st_drop_geometry() %>% select(PWSID, median_hh_income, percent_his, total_pop, percent_non_white) %>% mutate(SYSTEM_NO = str_extract(PWSID, "\\d+"))
+
+pws_ej_merged <- pws_ej %>% bind_rows(pws_shp %>% st_drop_geometry() %>% select(SABL_PWSID, median_hh_income, percent_his, total_pop, percent_non_white) %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")))
+
+pws_ej_merged <- pws_ej_merged %>% select(-PWSID, -SABL_PWSID)
+
+saveRDS(pws_ej_merged, "../Data/1int/pws_ej_ind.rds")
 # # plot relationship between percent hispanic and income
 # 
 # ggplot(data = ca_stats, aes(percent_non_white, median_hh_income)) +

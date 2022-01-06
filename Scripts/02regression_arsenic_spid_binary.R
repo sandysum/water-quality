@@ -15,6 +15,13 @@ library(cowplot)
 source("Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
+
+
+
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
+
+# home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
+
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
 ar_reg <-read_rds("../Data/1int/caswrb_ar_reg.rds")
@@ -25,12 +32,20 @@ soil <- readRDS("../Data/1int/pws_clay_merged.rds") %>%
 # levels(soil$ph_grp) <- c('low', 'high')
 levels(soil$clay_grp) <- c('low', 'high')
 
+# Read in and join to social eq ind ---------------------------------------
+# Added this part to run some regression to join social eq indicator
+
+ej <- readRDS(file.path(home, "1int/pws_ej_ind.rds")) %>% 
+  mutate(b_majority_latino = if_else(percent_his >= .5, 1, 0),
+         b_low_income = if_else(median_hh_income <=46000, 1, 0),
+         log_hh_income = log(median_hh_income))
+
 # 2. Filter to balanced panel for year 1996 to 2021
 
 # this function subsets to only balanced panels
-ar_reg_balanced <- subset_years(2010, pollutant = ar_reg, 2020, 1)
+as_reg_balanced <- subset_years(2010, pollutant = ar_reg, 2020, 1)
 
-ar_drought <- ar_reg_balanced %>% 
+as_drought <- as_reg_balanced %>% 
   ungroup() %>% 
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   left_join(soil) %>% 
@@ -49,214 +64,253 @@ ar_drought <- ar_reg_balanced %>%
     dlag6 = lag(dlag5),
     gXraw0 = factor(gw*(raw==0), levels = c('0', '1')),
     gXrXc = gw*raw*highclay) %>% 
-  mutate(gw = factor(gw),
+  mutate(gw = factor(gw, levels = c("1", "0")),
          raw = factor(raw),
          SYSTEM_NO = factor(SYSTEM_NO)) %>% 
   group_by(SYSTEM_NO, year) %>% 
   mutate(n_spid = 1/(unique(samplePointID) %>% length())) %>% 
-  ungroup()
+  ungroup() %>% 
+  dplyr::left_join(ej, by = "SYSTEM_NO")
 
-# 1. CONTEMPORANEOUS EFFECTS  -------------------------------------------------
+# Drought on As, status, lags, EJ ------------------------------------------
 
-mod_ar_1 <- 
-  felm(mean_ar ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+# in majority latino areas
 
-summary(mod_ar_1)
+df_h_perclat <- as_drought %>% filter(b_majority_latino==1 & !is.na(b_majority_latino))
 
-mod_ar_2 <- 
-  felm(mean_ar ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
+mod_as_3_perclat_h <-
+  felm(mean_as ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
 
-summary(mod_ar_2)
+summary(mod_as_3_perclat_h)
 
-mod_ar_3 <- 
-  felm(mean_ar ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_3)
-
-mod_ar_4 <- 
-  felm(mean_ar ~ d + d:gw + d:raw + d:gXraw0 + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_4)
-
-stargazer::stargazer(mod_ar_1, mod_ar_2, mod_ar_3, mod_ar_4, omit = c('year'), single.row = TRUE,
-                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
-
-
-# LAGGED EFFECTS ---------------------------------------------------
-
-mod_ar_lag1 <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
-       + d:gw 
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw 
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw
-       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_lag1)
-
-
-mod_ar_lag2 <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
-       + d:gw 
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw 
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw + year
-       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_lag2)
-
-mod_ar_lag3 <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
-       + d:gw 
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw 
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw+ year:SYSTEM_NO
-       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_lag3)
-
-# mod4 include interaction terms for being groundwater and raw; 
-# might want to recode everything to factors or binary variable for easier interpretation.
-
-mod_ar_lag4 <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
-       + d:gw 
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw 
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw 
-       + d:gXraw0
-       + dlag1:gXraw0
-       + dlag2:gXraw0
-       + dlag3:gXraw0 + year:SYSTEM_NO
-       | samplePointID | 0 | SYSTEM_NO, data = ar_drought, weights = ar_drought$n_spid)
-
-summary(mod_ar_lag4)
-
-saveRDS(mod_ar_lag4, "../Data/1int/ar_mod_lag4.rds")
-
-stargazer::stargazer(mod_ar_lag1, mod_ar_lag2, mod_ar_lag3, mod_ar_lag4, omit = c('year'), single.row = TRUE,
-                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
-
-# GW X RAW X HIGHCLAY -----------------------------------------------------
-
-ar_droughthc <- ar_drought %>% filter(highclay==1)
-mod_ar_lag4hc <- 
-  felm(mean_ar ~ d + dlag1 + dlag2 + dlag3
-       + d:gw 
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw 
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw 
-       + d:gXraw0
-       + dlag1:gXraw0
-       + dlag2:gXraw0
-       + dlag3:gXraw0 + year:SYSTEM_NO
-       | samplePointID | 0 | SYSTEM_NO, data = ar_droughthc, weights = ar_droughthc$n_spid)
-
-summary(mod_ar_lag4hc)
-
-# GW X RAW X HIGHCLAY -----------------------------------------------------
-
-mod_ar_lag_hiclay <- 
-  felm(mean_ar ~ d
-       + dlag1
-       + dlag2
-       + dlag3
+mod_as_lag3_perclat_h <-
+  felm(mean_as ~ d + dlag1 + dlag2
+       # + dlag3
        + d:gw
        + dlag1:gw
        + dlag2:gw
-       + dlag3:gw
+       # + dlag3:gw
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       + dlag3:raw + SYSTEM_NO:year
-       | samplePointID | 0 | SYSTEM_NO, data = ar_drought %>% filter(highclay==1), weights = ar_drought[ar_drought$highclay==1,]$n_spid)
+       # + dlag3:raw
+       + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
 
-summary(mod_ar_lag_hiclay)
+summary(mod_as_lag3_perclat_h)
 
-# non-central valley 
+# only 8 SPID with treated GW in this category... do not add that?
 
-mod_ni_lag_cv0 <- 
-  felm(mean_n ~ d
-       + dlag1
-       + dlag2
-       + dlag3
+df_l_perclat <- as_drought %>% filter(b_majority_latino==0 & !is.na(b_majority_latino))
+
+mod_as_3_perclat_l <-
+  felm(mean_as ~ d + d:gw + d:raw + SYSTEM_NO:year |  samplePointID | 0 | SYSTEM_NO, data = df_l_perclat, weights = df_l_perclat$n_spid)
+
+mod_as_lag3_perclat_l <-
+  felm(mean_as ~ d + dlag1 + dlag2
+       # + dlag3
        + d:gw
        + dlag1:gw
        + dlag2:gw
-       + dlag3:gw
+       # + dlag3:gw
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       + dlag3:raw + SYSTEM_NO:year
-       | samplePointID | 0 | SYSTEM_NO, data = ni_drought %>% filter(cv==0), weights = ni_drought[ni_drought$cv==0,]$n_spid)
+       # + dlag3:raw
+       + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = df_l_perclat, weights = df_l_perclat$n_spid)
+
+summary(mod_as_lag3_perclat_l)
+
+# df_int_perclat_h <- sum_marginal(mod_as_4_perclat_h, nlags = 0, int_terms = c('gw0', ':raw0'), contaminant = 'n')
+# df_int_perclat_l <- sum_marginal(mod_as_4_perclat_l, nlags = 0, int_terms = c('gw0', ':raw0'), contaminant = 'n')
+# 
+# plot_coeff_lags(df_int_cv[1:4,], contaminant = 'n', ylm =c(-0.1, 0.25))
+
+# for household income
+
+df_h_income <- as_drought %>% filter(b_low_income==0 & !is.na(b_low_income))
+
+mod_as_3_income_h <-
+  felm(mean_as ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = df_h_income, weights = df_h_income$n_spid)
+
+summary(mod_as_3_income_h)
+
+mod_as_lag3_income_h <-
+  felm(mean_as ~ d + dlag1 + dlag2
+       # + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       # + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       # + dlag3:raw
+       + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = df_h_income, weights = df_h_income$n_spid)
+
+summary(mod_as_lag3_income_h)
+
+# only 8 SPID with treated GW in this category... do not add that?
+
+df_l_income <- as_drought %>% filter(b_low_income==1 & !is.na(b_low_income))
+
+mod_as_3_income_l <-
+  felm(mean_as ~ d + d:gw + d:raw + SYSTEM_NO:year |  samplePointID | 0 | SYSTEM_NO, data = df_l_income, weights = df_l_income$n_spid)
+
+mod_as_lag3_income_l <-
+  felm(mean_as ~ d + dlag1 + dlag2
+       # + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       # + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       # + dlag3:raw
+       + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = df_l_income, weights = df_l_income$n_spid)
+
+summary(mod_as_lag3_income_l)
+
+stargazer::stargazer(mod_as_3_perclat_l, mod_as_3_perclat_h, 
+                     mod_as_3_income_h, mod_as_3_income_l,
+                     omit = c(':year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic (As) (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+stargazer::stargazer(mod_as_lag3_perclat_l, mod_as_lag3_perclat_h, 
+                     mod_as_lag3_income_h, mod_as_lag3_income_l,
+                     omit = c('year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic (As) (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
 
 
-summary(mod_ni_lag_cv0)
+# MOD GRP 1: Drought on As -------------------------------------------------
 
-stargazer::stargazer(mod_ni_lag_cv1, mod_ni_lag_cv0, omit = c('year'), single.row = TRUE,
-                     dep.var.lab
-                     
-                     # I can see that this heterogeneity is driven by claygroups
-                     
-                     ar_gw_raw <- ar_drought %>% filter(gw ==1, raw == 1, year >= 2010)  
-                     
-                     mod_gw <- felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID + year | 0 | SYSTEM_NO, data = ar_gw_raw, weights = ar_gw_raw$n_spid)
-                     
-                     mod_gw2 <- felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID + year | 0 | SYSTEM_NO, data = ar_gw_raw, weights = ar_gw_raw$n_spid)
-                     
-                     ar_s_raw <- ar_drought %>% filter(gw ==0, raw == 1, year >= 2010)  
-                     
-                     mod_s <- felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID + SYSTEM_NO:year | 0 | SYSTEM_NO, data = ar_s_raw, weights = ar_s_raw$n_spid)
-                     
-                     ar_tr <- ar_drought %>% filter(raw == 0, year >= 2010)  
-                     
-                     mod_tr <- felm(mean_ar ~ d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 | samplePointID + SYSTEM_NO:year  | 0 | SYSTEM_NO, data = ar_tr, weights = ar_tr$n_spid)
-                     
-                     plot_reg(mod_tr, contaminant = "ar", 
-                              main = "Arsenic (ug/L) response to +1 in PDSI, \nRegression at the sample point level", nleads = 0, nlags = 5, ylm = c(-.5, .5))
-                     
-                     # Plot and save -----------------------------------------------------------
-                     
-                     plist <- pmap(list(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), list(c(-.8, .8), c(-.5, .5), c(-.5, .5))), plot_reg, contaminant = "ar", nleads = 0, nlags = 5)
-                     
-                     save_plot("Plots/ar_pdsi_coefs_spid.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .5, scale = 4)
-                     
-                     
-                     # Explore clay group ------------------------------------------------------
-                     
-                     mod_gw_clay_nodrought <- felm(mean_ar ~ clay_grp | year | 0 | SYSTEM_NO, data = ar_gw_raw, weights = ar_gw_raw$n_spid)
-                     
-                     summary(mod_gw_clay_nodrought)
-                     
-                     # differential trends are segmented by clay groups
-                     
-                     mod_gw_clay <- felm(mean_ar ~ d + d:clay_grp 
-                                         + dlag1 + dlag1:clay_grp 
-                                         + dlag2 + dlag2:clay_grp 
-                                         + dlag3 + dlag3:clay_grp 
-                                         + dlag4 + dlag4:clay_grp
-                                         + dlag5 + dlag5:clay_grp | samplePointID + year | 0 | SYSTEM_NO, data = ar_gw_raw, weights = ar_gw_raw$n_spid)
-                     
-                     summary(mod_gw_clay)
-                     stargazer::stargazer(mod_gw_clay)
-                     
+# instantaneous effect is on the surface
+# mean contemporaneous effect of precip on raw GW, mean contemporaneous effect of precip on raw S, mean contemporaneous effect of precip on treated water
+
+# mod 1: spid FEs and year FE
+mod_as1 <- 
+  felm(mean_as ~ d | samplePointID + factor(year) | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as1)
+
+# mod 2: spid FEs and linear year 
+mod_as2 <- 
+  felm(mean_as ~ d + year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as2)
+
+# mod 3: spid FEs and PWS specific linear year 
+mod_as3 <- 
+  felm(mean_as ~ d + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as3)
+
+# mod 3 + perc latino: spid FEs and PWS specific linear year 
+mod_as_perclat <- 
+  felm(mean_as ~ d + d:b_majority_latino + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_perclat)
+
+# mod 3 + hh income: spid FEs and PWS specific linear year 
+mod_as_lowincome <- 
+  felm(mean_as ~ d + d:b_low_income + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_lowincome)
+
+# mod 3 + hh income + perc latino: spid FEs and PWS specific linear year 
+mod_as_both <- 
+  felm(mean_as ~ d + d:b_low_income + d:b_majority_latino + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_both)
+
+stargazer::stargazer(mod_as1, mod_as2, mod_as3, mod_as_perclat, mod_as_lowincome, mod_as_both, omit = c(':year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+# MOD GRP 2: Drought on As, status ----------------------------------------
+
+# instantaneous effect is on the surface
+# mean contemporaneous effect of precip on raw GW, mean contemporaneous effect of precip on raw S, mean contemporaneous effect of precip on treated water
+
+# mod 1: spid FEs and year FE
+mod_as_1 <- 
+  felm(mean_as ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_1)
+
+# mod 2: spid FEs and linear year 
+mod_as_2 <- 
+  felm(mean_as ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_2)
+
+# mod 3: spid FEs and PWS specific linear year 
+mod_as_3 <- 
+  felm(mean_as ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_3)
+
+stargazer::stargazer(mod_as_1, mod_as_2, mod_as_3,
+                     omit = c(':year'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic (As) (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+
+# MOD GRP 3: Drought on As, status, lags -----------------------------------
+mod_as_lag1 <- 
+  felm(mean_as ~ d
+       + dlag1
+       + dlag2
+       # + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       # + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       # + dlag3:raw
+       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_lag1)
+
+mod_as_lag2 <- 
+  felm(mean_as ~ year + d + dlag1 + dlag2 
+       # + dlag3
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       # + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       # + dlag3:raw 
+       + year
+       | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_lag2)
+
+mod_as_lag3 <- 
+  felm(mean_as ~ d + dlag1 + dlag2 
+       # + dlag3 
+       + d:gw
+       + dlag1:gw
+       + dlag2:gw
+       # + dlag3:gw
+       + d:raw
+       + dlag1:raw
+       + dlag2:raw
+       # + dlag3:raw 
+       + year:SYSTEM_NO
+       | samplePointID | 0 | SYSTEM_NO, data = as_drought, weights = as_drought$n_spid)
+
+summary(mod_as_lag3)
+
+summary(mod_as_lag4)
+saveRDS(mod_as_lag4, "../Data/1int/ni_mod_lag4.rds")
+
+stargazer::stargazer(mod_as_lag1, mod_as_lag2, mod_as_lag3, 
+                     omit = c('year:'), single.row = TRUE,
+                     dep.var.labels   = "Mean arsenic (As) (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
