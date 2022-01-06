@@ -174,9 +174,9 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
  
  v <- 0
  cv <- 0
- 
+ e <- 1+nlags
  # calculating cov for gw-raw term
- vcov_tmp <- vcov[1:4, 1:4]
+ vcov_tmp <- vcov[1:e, 1:e]
  
  se_d <- sqrt(sum(vcov_tmp))
  
@@ -189,7 +189,7 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
    coeff[length(coeff)+1] = sum(x %>% filter(str_detect(beta, j)) %>% dplyr::select(1)) + coeff[1]
 
    ind <- row.names(vcov) %>% str_detect(j) %>% which()
-   vcov_tmp <- vcov[c(1:4, ind) , c(1:4, ind)]
+   vcov_tmp <- vcov[c(1:e, ind) , c(1:e, ind)]
 
    se_d[length(se_d)+1] = sqrt(sum(vcov_tmp))
  }
@@ -201,6 +201,7 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
 }
 
 sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'), contaminant = "ar") {
+  e <- 1+nlags
   df <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients)) %>% 
     mutate(beta = str_replace(beta, "d$|d(?=:)", "dlag0"))
   vcov <- mod$clustervcv
@@ -210,9 +211,8 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
   
   # calculating point estimate and se for gw-raw over time
   coeff <- df %>% filter(str_detect(beta, "d$|dlag\\d$")) %>%
-    mutate(se = mod$cse[1:4], 
+    mutate(se = mod$cse[1:e], 
            int_terms = " ")
- # stuck here 2021/11/29 make sure that this works for all int_terms
   out <- c()
   for (j in 1:length(int_terms)) {
     # now within each interaction terms we calculate for each lags
@@ -232,7 +232,11 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
     }) %>% bind_rows()
  
   } 
-  bind_rows(coeff, out)
+  n <- mod$N
+  out <- bind_rows(coeff, out) %>%
+    mutate(t_val = UQ(rlang::sym(paste0('mean_', contaminant))) / se,
+           pval = 2 * pt(-abs(t_val), df = n - 1))
+  return(out)
   }
 
 plot_coeff <-
