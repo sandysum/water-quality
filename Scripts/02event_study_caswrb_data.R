@@ -1,7 +1,7 @@
 # Heading -----------------------------------------------------------------
 # A script to generate event study plots for both Arsenic and Nitrate.
 # sandysum@ucsb.edu
-# 2021/10/10
+# 2022/01/06
 
 library(tidyverse)
 library(readr)
@@ -12,9 +12,9 @@ library(ggplot2)
 library(DescTools)
 library(cowplot)
 library(lfe)
-source("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
+source("Scripts/helper_functions_models.R")
 
-home <- "Google Drive/My Drive/0Projects/1Water/2Quality/Data/"
+home <- "../Data/"
 
 # Read data in ------------------------------------------------------------
 
@@ -29,15 +29,15 @@ glimpse(ar)
 
 # 1. Raw groundwater
 ar_mod <- ar %>%
+  mutate(ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))) %>% 
   # look from 1991 and only at raw sources from groundwater
   # important!!!
-  filter(year >= 1996, raw == 1, WATER_TYPE=='G') %>% 
+  filter(year >= 1995, raw == 1, WATER_TYPE=='G') %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))
+    year = factor(year)
   ) 
 
 # drop rows with no time of sample
@@ -51,24 +51,25 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ar_mod <- ar_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | CITY,
+es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ar_mod)
-p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', 
-              main  = "Raw groundwater sources arsenic trends, 1996-2021")
 
-save_plot("Plots/ES_raw_gw_ar_96-21.png", p1, base_asp = 2, scale = 1.5)
+p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', 
+              main  = "Raw groundwater sources arsenic trends, 1995-2021", ylm = c(3,5))
+
+save_plot("Plots/ES_raw_gw_ar_95-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # 2. Raw surface water
 ar_mod <- ar %>%
+  mutate(ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))) %>% 
   # look from 1991 and only at raw sources from groundwater
   # important!!!
-  filter(year >= 1996, raw == 1, WATER_TYPE=='S') %>% 
+  filter(year >= 1995, raw == 1, WATER_TYPE=='S') %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))
+    year = factor(year)
   ) 
 
 # drop rows with no time of sample
@@ -82,24 +83,22 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ar_mod <- ar_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
+es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ar_mod)
-p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar',
-              main  = "Raw surface sources arsenic trends, 1996-2021")
+p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', ylm=c(1,3.5),
+              main  = "Raw surface sources arsenic trends, 1995-2021")
 
-save_plot("Plots/ES_raw_s_ar_96-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_raw_s_ar_95-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # 3. Treated water
 ar_mod <- ar %>%
-  # look from 1991 and only at raw sources from groundwater
-  # important!!!
+  mutate(ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))) %>%
   filter(year >= 1996, raw == 0) %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    ar_ugl = Winsorize(ar_ugl, probs = c(0,.99))
+    year = factor(year)
   ) 
 
 # drop rows with no time of sample
@@ -113,14 +112,13 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ar_mod <- ar_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
+es_ar <- felm(ar_ugl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ar_mod)
 
-p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar',
-              main  = "Treated arsenic trends, 1996-2021")
+p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', ylm = c(0,6),
+              main  = "Treated arsenic trends, 1995-2021")
 
-
-save_plot("Plots/ES_treated_ar_96-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_treated_ar_95-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # Generate event study coefficients: NItrate ------------------------------
 
@@ -130,17 +128,15 @@ glimpse(ni)
 
 # 1. Raw groundwater
 ni_mod <- ni %>%
-# There is not a lot of nitrate measurements! only started ramping up in 2010
-  filter(raw == 1, WATER_TYPE=='G',
-    year > 1984
-    ) %>% 
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>%
+  filter(raw == 1, WATER_TYPE == 'G',
+         year >= 1991) %>%
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
     year = factor(year),
-    n_mgl = Winsorize(n_mgl, probs = c(0,.99)),
-    n() ==1 # tells me if this is a duplicate
+    n() == 1 # tells me if this is a duplicate
   ) 
 
 # drop rows with no time of sample
@@ -154,25 +150,23 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ni_mod <- ni_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | CITY,
+es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ni_mod)
 
 p1 <- plot_es(es_ni, ni_mod, contaminant = 'n', 
-              main  = "Raw groundwater sources nitrate trends, 1985-2021")
+              main  = "Raw groundwater sources nitrate trends, 1991-2021", ylm = c(3.2,4.5))
 
-save_plot("Plots/ES_raw_gw_ni_85-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_raw_gw_ni_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # 2. Raw surface water
 ni_mod <- ni %>%
-  # look from 1991 and only at raw sources from groundwater
-  # important!!!
-  filter(year > 1995, raw == 1, WATER_TYPE=='S') %>% 
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>%
+  filter(year >= 1991, raw == 1, WATER_TYPE=='S') %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    n_mgl = Winsorize(n_mgl, probs = c(0,.99))
+    year = factor(year)
   ) 
 
 # drop rows with no time of sample
@@ -186,25 +180,24 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ni_mod <- ni_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
+es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ni_mod)
 
 p1 <- plot_es(es_ni, ni_mod, contaminant = 'n', 
-              main  = "Raw surface sources nitrate trends, 1996-2021")
+              main  = "Raw surface sources nitrate trends, 1991-2021",
+              ylm = c(-.2, 1.2))
 
-save_plot("Plots/ES_raw_s_ni_96-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_raw_s_ni_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # 3. Treated water
 ni_mod <- ni %>%
-  # look from 1991 and only at raw sources from groundwater
-  # important!!!
-  filter(year >= 1996, raw == 0) %>% 
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>%
+  filter(year >= 1991, raw == 0) %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    n_mgl = Winsorize(n_mgl, probs = c(0,.99))
+    year = factor(year)
   ) 
 
 # drop rows with no time of sample
@@ -218,45 +211,80 @@ names(poly_dy) <- paste0('dy_', 1:3)
 
 ni_mod <- ni_mod %>% bind_cols(poly_td, poly_dy)
 
-es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
+es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,
               data = ni_mod)
+
 p1 <- plot_es(es_ni, ni_mod, contaminant = 'n', 
-              main  = "Treated nitrate trend, 1996-2021")
+              main  = "Treated nitrate trend, 1991-2021",
+              ylm = c(2.2, 3.6))
 
-save_plot("Plots/ES_treated_ni_96-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_treated_ni_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
-
-# 4. Raw water only in Central Valley
-# 1. Raw groundwater/Surface water
-ni_mod_cv <- ni %>%
-  # There is not a lot of nitrate measurements! only started ramping up in 2010
-  filter(year > 1995, raw == 1, WATER_TYPE == "G") %>% 
+# ES for latino vs not latino majority
+ej <- readRDS(file.path(home, "1int/pws_ej_ind.rds")) %>% 
+  mutate(b_majority_latino = if_else(percent_his >= .5, 1, 0),
+         b_low_income = if_else(median_hh_income <=46000, 1, 0),
+         log_hh_income = log(median_hh_income))
+ni_mod_hlat <- ni %>%
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0,.99))) %>% 
+  filter(year >=1991, raw == 1, WATER_TYPE == "G") %>% 
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
-    year = factor(year),
-    n_mgl = Winsorize(n_mgl, probs = c(0,.99)),
-    cv = if_else(countyName %in% cv_counties, 1, 0)
+    year = factor(year)
   ) %>% 
-  filter(cv==1)
+  left_join(ej) %>% 
+  filter(b_majority_latino==1)
   
 
 # drop rows with no time of sample
-ni_mod_cv <- ni_mod_cv %>% tidyr::drop_na(td, dy)
+ni_mod_hlat <- ni_mod_hlat %>% tidyr::drop_na(td, dy)
 
 # create polynomials
-poly_td <- poly(ni_mod_cv$td, degree = 3) %>% as_tibble()
+poly_td <- poly(ni_mod_hlat$td, degree = 3) %>% as_tibble()
 names(poly_td) <- paste0('td_', 1:3)
-poly_dy <- poly(ni_mod_cv$dy, degree = 3) %>% as_tibble()
+poly_dy <- poly(ni_mod_hlat$dy, degree = 3) %>% as_tibble()
 names(poly_dy) <- paste0('dy_', 1:3)
 
-ni_mod_cv <- ni_mod_cv %>% bind_cols(poly_td, poly_dy)
+ni_mod_hlat <- ni_mod_hlat %>% bind_cols(poly_td, poly_dy)
 
-es_ni_cv <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | SYSTEM_NO | 0 | ZIP,
-              data = ni_mod_cv)
+es_ni_hlat <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,data = ni_mod_hlat)
 
-p1 <- plot_es(es_ni_cv, ni_mod_cv, contaminant = 'n', 
-              main  = "Raw groundwater sources nitrate trends not in Central Valley, 1995-2021")
+p1 <- plot_es(es_ni_hlat, ni_mod_hlat, contaminant = 'n', 
+              main  = "Raw groundwater sources nitrate trends for \nPWS serving majority Latino population, 1991-2021", ylm = c(3,6))
 
-save_plot("Plots/ES_raw_gw_ni_not_cv_95-21.png", p1, base_asp = 2, scale = 1.5)
+save_plot("Plots/ES_raw_gw_ni_hlat_91-21.png", p1, base_asp = 2.5, scale = 1.2)
+ 
+#---
+
+ni_mod_llat <- ni %>%
+  mutate(n_mgl = Winsorize(n_mgl, probs = c(0,.99))) %>% 
+  filter(year >=1991, raw == 1, WATER_TYPE == "G") %>% 
+  mutate(
+    td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
+    %>% if_else((. == 44 | . == 80), NA_real_, .),
+    dy = yday(sampleDate),
+    year = factor(year)
+  ) %>% 
+  left_join(ej) %>% 
+  filter(b_majority_latino==0)
+
+
+# drop rows with no time of sample
+ni_mod_llat <- ni_mod_llat %>% tidyr::drop_na(td, dy)
+
+# create polynomials
+poly_td <- poly(ni_mod_llat$td, degree = 3) %>% as_tibble()
+names(poly_td) <- paste0('td_', 1:3)
+poly_dy <- poly(ni_mod_llat$dy, degree = 3) %>% as_tibble()
+names(poly_dy) <- paste0('dy_', 1:3)
+
+ni_mod_llat <- ni_mod_llat %>% bind_cols(poly_td, poly_dy)
+
+es_ni_llat <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,data = ni_mod_llat)
+
+p1 <- plot_es(es_ni_llat, ni_mod_llat, contaminant = 'n', 
+              main  = "Raw groundwater sources nitrate trends for \nPWS serving non-majority Latino population, 1991-2021", ylm = c(3,6))
+
+save_plot("Plots/ES_raw_gw_ni_llat_91-21.png", p1, base_asp = 2.5, scale = 1.2)

@@ -1,6 +1,7 @@
-plot_es <- function(es, df, contaminant = "ar", main = "") {
+plot_es <- function(es, df, contaminant = "ar", main = "",
+                    ylm = c(0,8)) {
   df %>% drop_na(SYSTEM_NO, contains("td"), contains("dy"), year, ZIP)
-  se <- es$cse %>% as_tibble() %>% mutate(coef = names(es$cse))
+  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
   x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
     left_join(se) %>% 
     rename(se = value)
@@ -24,12 +25,10 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
              lwr = avg_ar - 1.96*se)
     # quartz()
     x %>% ggplot(aes(year_n, avg_ar)) +
-      # pluvial: 1993-1999, 2005-2006,2010-2011
-      # # drought: 2000-2003, 2007-2009, 2012–2016, 2018 and 2020-2021
-      # geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+      geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
       # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+      geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+      geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
       # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
       # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
       # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
@@ -41,7 +40,8 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
       ggtitle(label = main) +
       scale_x_continuous(breaks = 1990:2021) +
       theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-            plot.background = element_rect(fill = "white", color = NA))
+            plot.background = element_rect(fill = "white", color = NA)) +
+      lims(y = ylm)
   } else if (contaminant == 'n') {
       baseline_ni <- df %>%
         mutate(year_n = as.integer(as.character(year))) %>%
@@ -61,10 +61,10 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
                lwr = avg_n - 1.96*se)
       # quartz()
       x %>% ggplot(aes(year_n, avg_n)) +
-        # geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+        geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
         # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        # geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        # geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+        geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+        geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
         # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
         # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
         # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
@@ -76,7 +76,8 @@ plot_es <- function(es, df, contaminant = "ar", main = "") {
         ggtitle(label = main) +
         scale_x_continuous(breaks = 1984:2021) +
         theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-              plot.background = element_rect(fill = "white", color = NA))
+              plot.background = element_rect(fill = "white", color = NA)) +
+        lims(y = ylm)
   }
 }
 
