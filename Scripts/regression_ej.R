@@ -67,23 +67,52 @@ pws_vio <- ej %>% left_join(as_vio_new, by = "SYSTEM_NO") %>%
          median_hh_income_cat = cut_interval(median_hh_income, 10, labels = 1:10),
          perc_latino_cat = cut_interval(perc_latino, 10, labels = 1:10)) 
 
+# Create shapefile centroids of pws / to plot # violations ----------------
+
+pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
+  mutate(SYSTEM_NO = str_extract(PWSID, '\\d+')) %>% 
+  select(SYSTEM_NO) %>% 
+  st_transform(crs = 3488)
+pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") %>% 
+  mutate(SYSTEM_NO = str_extract(SABL_PWSID, '\\d+')) %>% 
+select(SYSTEM_NO) %>% 
+  st_transform(crs = 3488)
+pws_points <- st_centroid(pws_zip) 
+pws_points2 <- st_centroid(pws_shp) 
+pws_points <- rbind(pws_points, pws_points2)
+pws_points2  <- pws_points %>% 
+  left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
+  mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
+  filter(n_violations > 0)
+
+write_sf(pws_points2, "../Data/vio_n_pws.shp")
+ca_stat <- st_simplify(ca_stats, dTolerance = 5)
+
+ggplot(ca_stats) +
+  geom_sf(aes(fill = percent_his))
 
 # Plot data for violations ------------------------------------------------
 
-pws_boxpl_perclat_vios <- pws_vio %>% drop_na() %>% gather("violations", "num", matches("violations")) %>%
-  filter(num > 0) %>% ggplot(aes(perc_latino_cat, num, fill = violations)) +
-  geom_boxplot() +
+pws_boxpl_perclat_vios <- pws_vio %>% drop_na() %>% 
+  gather("violations", "num", matches("violations")) %>%
+  mutate(logperlat = log(perc_latino)) %>% 
+  filter(num > 0) %>% ggplot(aes(logperlat, num)) +
+  geom_point(aes(color = violations)) +
+  # geom_smooth(aes(color = violations)) +
   theme_minimal() +
-  scale_fill_brewer(palette = 'Dark2') +
+  scale_color_brewer(palette = 'Dark2') +
   labs(x = '% Latino', y = "# of total violations")
 
 save_plot("Plots/ej_perclat_vios.png", pws_boxpl_perclat_vios, base_asp = 3, scale = 1.2)
   
-pws_boxpl_hhincome_vios <- pws_vio %>% drop_na() %>% gather("violations", "num", matches("violations")) %>%
-  filter(num > 0) %>% ggplot(aes(median_hh_income_cat, num, fill = violations)) +
-  geom_boxplot() +
+pws_boxpl_hhincome_vios <- pws_vio %>% drop_na() %>% 
+  gather("violations", "num", matches("violations")) %>%
+  # mutate(logperlat = log(perc_latino)) %>% 
+  filter(num > 0) %>% ggplot(aes(log_hh_income, num)) +
+  geom_point(aes(color = violations)) +
+  # geom_smooth(aes(color = violations)) +
   theme_minimal() +
-  scale_fill_brewer(palette = 'Dark2') +
+  scale_color_brewer(palette = 'Dark2') +
   labs(x = 'Median hh income decile', y = "# of total violations")
 
 save_plot("Plots/ej_perclat_vios.png", pws_boxpl_perclat_vios, base_asp = 3, scale = 1.2)

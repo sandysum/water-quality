@@ -74,11 +74,90 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
         # geom_smooth() +
         theme_minimal_hgrid() +
         ggtitle(label = main) +
-        scale_x_continuous(breaks = 1984:2021) +
+        # lims(x=c(1984,2022)) +
+        scale_x_continuous(breaks = 1984:2022) +
         theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
               plot.background = element_rect(fill = "white", color = NA)) +
         lims(y = ylm)
   }
+}
+
+plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
+                    ylm = c(0,8)) {
+  # browser()
+  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
+  x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
+    left_join(se) %>% 
+    rename(se = value)
+
+    baseline_ni <- df %>%
+      mutate(year_n = as.integer(as.character(year))) %>%
+      filter(year_n == min(year_n))
+    
+    bs <- tibble(
+      year_n = min(baseline_ni$year_n),
+      avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
+    )
+    
+    se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
+    x2 <- as_tibble(es2$coefficients) %>% mutate(coef = rownames(es2$coefficients)) %>%
+      left_join(se2) %>% 
+      rename(se = value)
+    
+    baseline_ni <- df %>%
+      mutate(year_n = as.integer(as.character(year))) %>%
+      filter(year_n == min(year_n))
+    baseline_ni2 <- df2 %>%
+      mutate(year_n = as.integer(as.character(year))) %>%
+      filter(year_n == min(year_n))
+    
+    bs <- tibble(
+      year_n = min(baseline_ni$year_n),
+      avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
+    )
+    bs2 <- tibble(
+      year_n = min(baseline_ni2$year_n),
+      avg_n = mean(baseline_ni2$n_mgl, na.rm = TRUE)
+    )
+    x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
+      mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
+             avg_n = n_mgl + bs2$avg_n) %>% 
+      bind_rows(bs2) %>% 
+      arrange(year_n) %>% 
+      mutate(upr = 1.96*se+avg_n,
+             lwr = avg_n - 1.96*se,
+             group = 'majority Latino')
+    
+    x <- x %>% filter(str_detect(coef, 'year')) %>%
+      mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
+             avg_n = n_mgl + bs$avg_n) %>% 
+      bind_rows(bs) %>% 
+      arrange(year_n) %>% 
+      mutate(upr = 1.96*se+avg_n,
+             lwr = avg_n - 1.96*se,
+             group = 'non-majority Latino') %>% 
+      bind_rows(x2)
+    x %>% ggplot(aes(year_n, avg_n)) +
+      geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
+      # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+      geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
+      geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
+      # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+      # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+      # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+      # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+      geom_point(aes(color = group)) +
+      geom_errorbar(aes(ymin = lwr, ymax = upr, width = .06, color = group)) +
+      # geom_smooth() +
+      theme_minimal_hgrid() +
+      ggtitle(label = main) +
+      # lims(x=c(1984,2022)) +
+      scale_x_continuous(breaks = 1984:2022) +
+      theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
+            plot.background = element_rect(fill = "white", color = NA)) +
+      lims(y = ylm) +
+      scale_color_brewer(palette = 'Set2') +
+      theme(legend.position = 'top')
 }
 
 plot_reg <- function(mod, main = " ", ylm = c(-.04, .01), contaminant = "ar", nleads = 2, nlags = 5) {
@@ -261,9 +340,8 @@ plot_coeff <-
       df %>% mutate(
         x_ticks = c(
           'Raw groundwater',
-          'Raw Surface',
-          'Treated Groundwater',
-          'Treated Surface'
+          'Raw surface',
+          'Treated water'
         )
       )
     ggplot(df, aes(x = x_ticks, y = est)) +
@@ -282,10 +360,10 @@ plot_coeff <-
 plot_coeff_lags <-
   function(df,
            type = 'raw groundwater',
-           contaminant = 'ar',
+           contaminant = 'as',
            drought_measure = '',
            ylm = c(-1.6, 0.5)) {
-    if (contaminant == 'ar') {
+    if (contaminant == 'as') {
       c <- 'cadetblue2'
       t <- paste0('Change in annual mean As (ug/l): \n', type)
     } else {

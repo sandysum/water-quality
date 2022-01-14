@@ -120,7 +120,7 @@ p1 <- plot_es(es_ar, ar_mod, contaminant = 'ar', ylm = c(0,6),
 
 save_plot("Plots/ES_treated_ar_95-21.png", p1, base_asp = 2.5, scale = 1.2)
 
-# Generate event study coefficients: NItrate ------------------------------
+# Generate event study coefficients: Nitrate ------------------------------
 
 glimpse(ni)
 
@@ -154,7 +154,7 @@ es_ni <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePoi
               data = ni_mod)
 
 p1 <- plot_es(es_ni, ni_mod, contaminant = 'n', 
-              main  = "Raw groundwater sources nitrate trends, 1991-2021", ylm = c(3.2,4.5))
+              main  = "Raw groundwater sources nitrate trends, 1991-2021", ylm = c(3,6))
 
 save_plot("Plots/ES_raw_gw_ni_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
@@ -288,3 +288,6 @@ p1 <- plot_es(es_ni_llat, ni_mod_llat, contaminant = 'n',
               main  = "Raw groundwater sources nitrate trends for \nPWS serving non-majority Latino population, 1991-2021", ylm = c(3,6))
 
 save_plot("Plots/ES_raw_gw_ni_llat_91-21.png", p1, base_asp = 2.5, scale = 1.2)
+
+ej_n <- plot_es2(es_ni_llat, es_ni_hlat, ni_mod_llat, ni_mod_hlat, contaminant = 'n', ylm = c(3,6))
+save_plot("Plots/ES_n_ej.png", ej_n, base_asp = 2.5, scale = 1.2)

@@ -120,7 +120,7 @@ mod_ni_lag3_perclat_l <-
        # + dlag3
        + d:gw
        + dlag1:gw
-       + dlag2:gw1
+       + dlag2:gw
        # + dlag3:gw
        + d:raw
        + dlag1:raw
@@ -193,6 +193,10 @@ stargazer::stargazer(mod_ni_lag3_perclat_l, mod_ni_lag3_perclat_h,
                      mod_ni_lag3_income_h, mod_ni_lag3_income_l,
                      omit = c('year'), single.row = TRUE,
                      dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+saveRDS(list(mod_ni_lag3_perclat_l, mod_ni_lag3_perclat_h, 
+             mod_ni_lag3_income_h, mod_ni_lag3_income_l),
+        "../Data/1int/n_mod_ej.rds")
 
 # MOD GRP 1: Drought on N -------------------------------------------------
 
@@ -333,8 +337,7 @@ summary(mod_ni_lag3)
 #        + dlag3:gXraw0 + year:SYSTEM_NO
 #        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
-summary(mod_ni_lag4)
-saveRDS(mod_ni_lag4, "../Data/1int/ni_mod_lag4.rds")
+saveRDS(mod_ni_lag3, "../Data/1int/ni_mod_lag3.rds")
 
 stargazer::stargazer(mod_ni_lag1, mod_ni_lag2, mod_ni_lag3, 
                      omit = c('year:'), single.row = TRUE,

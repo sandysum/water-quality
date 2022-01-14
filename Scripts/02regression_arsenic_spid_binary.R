@@ -16,8 +16,6 @@ source("Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
 
-
-
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
 
 # home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
@@ -185,6 +183,9 @@ stargazer::stargazer(mod_as_lag3_perclat_l, mod_as_lag3_perclat_h,
                      omit = c('year'), single.row = TRUE,
                      dep.var.labels   = "Mean arsenic (As) (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
 
+saveRDS(list(mod_as_lag3_perclat_l, mod_as_lag3_perclat_h, 
+             mod_as_lag3_income_h, mod_as_lag3_income_l),
+        "../Data/1int/as_mod_ej.rds")
 
 # MOD GRP 1: Drought on As -------------------------------------------------
 
@@ -308,8 +309,7 @@ mod_as_lag3 <-
 
 summary(mod_as_lag3)
 
-summary(mod_as_lag4)
-saveRDS(mod_as_lag4, "../Data/1int/ni_mod_lag4.rds")
+saveRDS(mod_as_lag3, "../Data/1int/as_mod_lag3.rds")
 
 stargazer::stargazer(mod_as_lag1, mod_as_lag2, mod_as_lag3, 
                      omit = c('year:'), single.row = TRUE,
