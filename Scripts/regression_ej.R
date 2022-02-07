@@ -68,7 +68,7 @@ pws_vio <- ej %>% left_join(as_vio_new, by = "SYSTEM_NO") %>%
          perc_latino_cat = cut_interval(perc_latino, 10, labels = 1:10)) 
 
 # Create shapefile centroids of pws / to plot # violations ----------------
-
+# saved for plotting in ArcMap on grotto
 pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
   mutate(SYSTEM_NO = str_extract(PWSID, '\\d+')) %>% 
   select(SYSTEM_NO) %>% 
@@ -86,36 +86,6 @@ pws_points2  <- pws_points %>%
   filter(n_violations > 0)
 
 write_sf(pws_points2, "../Data/vio_n_pws.shp")
-ca_stat <- st_simplify(ca_stats, dTolerance = 5)
-
-ggplot(ca_stats) +
-  geom_sf(aes(fill = percent_his))
-
-# Plot data for violations ------------------------------------------------
-
-pws_boxpl_perclat_vios <- pws_vio %>% drop_na() %>% 
-  gather("violations", "num", matches("violations")) %>%
-  mutate(logperlat = log(perc_latino)) %>% 
-  filter(num > 0) %>% ggplot(aes(logperlat, num)) +
-  geom_point(aes(color = violations)) +
-  # geom_smooth(aes(color = violations)) +
-  theme_minimal() +
-  scale_color_brewer(palette = 'Dark2') +
-  labs(x = '% Latino', y = "# of total violations")
-
-save_plot("Plots/ej_perclat_vios.png", pws_boxpl_perclat_vios, base_asp = 3, scale = 1.2)
-  
-pws_boxpl_hhincome_vios <- pws_vio %>% drop_na() %>% 
-  gather("violations", "num", matches("violations")) %>%
-  # mutate(logperlat = log(perc_latino)) %>% 
-  filter(num > 0) %>% ggplot(aes(log_hh_income, num)) +
-  geom_point(aes(color = violations)) +
-  # geom_smooth(aes(color = violations)) +
-  theme_minimal() +
-  scale_color_brewer(palette = 'Dark2') +
-  labs(x = 'Median hh income decile', y = "# of total violations")
-
-save_plot("Plots/ej_perclat_vios.png", pws_boxpl_perclat_vios, base_asp = 3, scale = 1.2)
 
 # Run regression for violations -------------------------------------------
 
