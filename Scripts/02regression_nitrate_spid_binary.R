@@ -6,7 +6,7 @@
 
 
 # Load packages -----------------------------------------------------------
-
+rm(list = ls())
 library(tidyverse)
 library(lfe)
 library(DescTools)
@@ -15,7 +15,7 @@ library(cowplot)
 source("Scripts/helper_functions_models.R")
 options(digits=3)
 # Read in data ------------------------------------------------------------
-
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
 ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
@@ -24,10 +24,7 @@ ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
 # Read in and join to social eq ind ---------------------------------------
 # Added this part to run some regression to join social eq indicator
 
-ej <- readRDS(file.path(home, "1int/pws_ej_ind.rds")) %>% 
-  mutate(b_majority_latino = if_else(percent_his >= .5, 1, 0),
-         b_low_income = if_else(median_hh_income <=46000, 1, 0),
-         log_hh_income = log(median_hh_income))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
@@ -61,7 +58,7 @@ ni_drought <- ni_reg_balanced %>%
   group_by(SYSTEM_NO, year) %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup() %>% 
-  dplyr::left_join(ej, by = "SYSTEM_NO")
+  dplyr::left_join(ind, by = "SYSTEM_NO")
 
 # Visualize annual trends within PWS --------------------------------------
 # set.seed(1297)
@@ -88,7 +85,8 @@ ni_drought <- ni_reg_balanced %>%
 df_h_perclat <- ni_drought %>% filter(b_majority_latino==1 & !is.na(b_majority_latino))
 
 mod_ni_3_perclat_h <-
-  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
+  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 
+       | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
 
 summary(mod_ni_3_perclat_h)
 

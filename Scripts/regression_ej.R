@@ -23,7 +23,7 @@ library(cowplot)
 # https://cacensus.maps.arcgis.com/apps/webappviewer/index.html?id=48be59de0ba94a3dacff1c9116df8b37
 
 # Good website to double check if the census average numbers are correct
-ej <- readRDS(file.path(home, "1int/pws_ej_ind.rds"))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 # %>% 
 #   filter(SYSTEM_NO %in% (str_extract(pws_shp$SABL_PWSID, "\\d+"))) %>% 
 #   drop_na()
@@ -59,33 +59,35 @@ as_vio_new <- violations %>%
   # summarise(n_new_violations = unique(VIOLATION_ID) %>% length())
   summarise(as_violations = n()) 
 
-pws_vio <- ej %>% left_join(as_vio_new, by = "SYSTEM_NO") %>% 
+pws_vio <- ind %>% left_join(as_vio_new, by = "SYSTEM_NO") %>% 
   left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
   mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
   mutate(log_hh_income = log(median_hh_income),
          perc_latino = percent_his*100,
          median_hh_income_cat = cut_interval(median_hh_income, 10, labels = 1:10),
-         perc_latino_cat = cut_interval(perc_latino, 10, labels = 1:10)) 
+         perc_latino_cat = cut_interval(perc_latino, 10, labels = 1:10),
+         arcsinh_n_vio = log(n_violations+sqrt((n_violations^2)+1)),
+         arcsinh_as_vio = log(as_violations+sqrt((as_violations^2)+1)))
 
 # Create shapefile centroids of pws / to plot # violations ----------------
 # saved for plotting in ArcMap on grotto
-pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
-  mutate(SYSTEM_NO = str_extract(PWSID, '\\d+')) %>% 
-  select(SYSTEM_NO) %>% 
-  st_transform(crs = 3488)
-pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") %>% 
-  mutate(SYSTEM_NO = str_extract(SABL_PWSID, '\\d+')) %>% 
-select(SYSTEM_NO) %>% 
-  st_transform(crs = 3488)
-pws_points <- st_centroid(pws_zip) 
-pws_points2 <- st_centroid(pws_shp) 
-pws_points <- rbind(pws_points, pws_points2)
-pws_points2  <- pws_points %>% 
-  left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
-  mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
-  filter(n_violations > 0)
-
-write_sf(pws_points2, "../Data/vio_n_pws.shp")
+# pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
+#   mutate(SYSTEM_NO = str_extract(PWSID, '\\d+')) %>% 
+#   select(SYSTEM_NO) %>% 
+#   st_transform(crs = 3488)
+# pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") %>% 
+#   mutate(SYSTEM_NO = str_extract(SABL_PWSID, '\\d+')) %>% 
+# select(SYSTEM_NO) %>% 
+#   st_transform(crs = 3488)
+# pws_points <- st_centroid(pws_zip) 
+# pws_points2 <- st_centroid(pws_shp) 
+# pws_points <- rbind(pws_points, pws_points2)
+# pws_points2  <- pws_points %>% 
+#   left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
+#   mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
+#   filter(n_violations > 0)
+# 
+# write_sf(pws_points2, "../Data/vio_n_pws.shp")
 
 # Run regression for violations -------------------------------------------
 
@@ -119,7 +121,7 @@ stargazer::stargazer(mod_v_as_ej_income, mod_v_as_ej_percent_his,
 
 # Q1 are DAC PWS getting more violations?
 
-ggplot(pws_vio, aes(perc_latino, n_violations)) +
+ggplot(pws_vio, aes(perc_latino, percAgArea)) +
   geom_point() +
   geom_smooth() +
   theme_minimal()
