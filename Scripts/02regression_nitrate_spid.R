@@ -17,8 +17,8 @@ source("Scripts/helper_functions_models.R")
 # Read in data ------------------------------------------------------------
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
-
-ni_reg <-read_rds(file.path(home, "1int/caswrb_ni_reg.rds"))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
@@ -33,7 +33,7 @@ ni_drought <- ni_reg_balanced %>%
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   group_by(samplePointID) %>% 
   mutate(
-    d = if_else(mean_pdsi <= -1, 1, 0), 
+    d = mean_pdsi*-1,
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -42,8 +42,17 @@ ni_drought <- ni_reg_balanced %>%
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
     dlag6 = lag(dlag5),
-    gXr = factor(gw*raw, levels = c("1", '0')),
-    rXcv = raw*cv) %>% 
+    d1 = if_else(mean_pdsi< -1, 1, 0),
+    d1lead = lead(d),
+    d1lead2 = lead(dlead),
+    d1lag1 = lag(d),
+    d1lag2 = lag(dlag1),
+    d1lag3 = lag(dlag2),
+    d1lag4 = lag(dlag3),
+    d1lag5 = lag(dlag4),
+    d1lag6 = lag(dlag5),
+    gXraw0 = factor(gw*(raw==0), levels = c('0', '1')),
+    gXraw = factor(gw*raw, levels = c('0', '1'))) %>% 
   mutate(
     gw = factor(gw, levels = c("1", "0")),
     raw = factor(raw),
@@ -51,13 +60,15 @@ ni_drought <- ni_reg_balanced %>%
   ) %>%
   group_by(SYSTEM_NO, year) %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
-  ungroup()
+  ungroup() %>% 
+  dplyr::left_join(ind, by = "SYSTEM_NO")
 
 ni_drought %>% drop_na()
 # A tibble: 17,232 × 29
 # A tibble: 18,276 × 29
 # Visualize annual trends within PWS --------------------------------------
 set.seed(1297)
+
 q <- sample(unique(ni_drought$SYSTEM_NO), 100)
 quartz()
 p <- ni_drought %>% 
@@ -73,35 +84,73 @@ p <- ni_drought %>%
 
 save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_n.png", p, base_asp = 1.2, scale = 5)
 
-# NO LAGGED EFFECTS  -------------------------------------------------
+# NO LAGGED EFFECTS, NO SOURCE  -------------------------------------------------
 
-# instantaneous effect is on the surface
-# mean contemporaneous effect of precip on raw GW, mean contemporaneous effect of precip on raw S, mean contemporaneous effect of precip on treated water
+mod_ni_0 <- 
+  felm(mean_n ~ d | samplePointID + factor(year) | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
+
+mod_ni_01 <- 
+  felm(mean_n ~ d + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
+
 mod_ni_1 <- 
-  felm(mean_n ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+  felm(mean_n ~ d + d:gw + d:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
-summary(mod_ni_1)
+mod_ni_11 <- 
+  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
 mod_ni_2 <- 
-  felm(mean_n ~ d + d:gw + d:raw + year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+  felm(mean_n ~ d1 | samplePointID + factor(year) | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
-summary(mod_ni_2)
+mod_ni_21 <- 
+  felm(mean_n ~ d1 + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
 mod_ni_3 <- 
-  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+  felm(mean_n ~ d1 + d1:gw + d1:raw | samplePointID + factor(year) | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
-summary(mod_ni_3)
+mod_ni_31 <- 
+  felm(mean_n ~ d1 + d1:gw + d1:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
-mod_ni_4 <- 
-  felm(mean_n ~ d + d:gw + d:raw + d:gXr + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
-
-summary(mod_ni_4)
-
-stargazer::stargazer(mod_ni_1, mod_ni_2, mod_ni_3, mod_ni_4, omit = c(':year'), single.row = TRUE,
-                     dep.var.labels   = "Mean Nitrate level (ug/L)", dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
-
+stargazer::stargazer(mod_ni_0, mod_ni_1, 
+                     mod_ni_2,  mod_ni_3,
+                     omit = c(':year'), single.row = TRUE,
+                     column.sep.width = "1pt",
+                     dep.var.labels   = "Mean Nitrate conc. (mg/L)", 
+                     dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+stargazer::stargazer(mod_ni_01, mod_ni_11, 
+                     mod_ni_21,  mod_ni_31,
+                     omit = c(':year'), single.row = TRUE,
+                     column.sep.width = "1pt",
+                     dep.var.labels   = "Mean Nitrate conc. (mg/L)", 
+                     dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
 
 # ADDING LAGGED EFFECTS ---------------------------------------------------
+
+mod_ni_lag0 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag0)
+
+mod_ni_lag01 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
+       + SYSTEM_NO:year
+       | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag01)
 
 mod_ni_lag1 <- 
   felm(mean_n ~ d
@@ -116,16 +165,15 @@ mod_ni_lag1 <-
        + dlag1:raw
        + dlag2:raw
        + dlag3:raw
-       # + d:gXr
-       # + dlag1:gXr
-       # + dlag2:gXr
-       # + dlag3:gXr
        | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_lag1)
 
-mod_ni_lag2 <- 
-  felm(mean_n ~ year + d + dlag1 + dlag2 + dlag3
+mod_ni_lag11 <- 
+  felm(mean_n ~ d
+       + dlag1
+       + dlag2
+       + dlag3
        + d:gw
        + dlag1:gw
        + dlag2:gw
@@ -133,45 +181,67 @@ mod_ni_lag2 <-
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       + dlag3:raw + year
+       + dlag3:raw
+       + SYSTEM_NO:year
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag11)
+
+mod_ni_lag2 <- 
+  felm(mean_n ~ d1 + d1lag1 + d1lag2 + d1lag3 | samplePointID + factor(year) | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_lag2)
 
+mod_ni_lag21 <- 
+  felm(mean_n ~ d1 + d1lag1 + d1lag2 + d1lag3 + SYSTEM_NO:year | 
+         samplePointID | 0 | SYSTEM_NO, 
+       data = ni_drought, weights = ni_drought$n_spid)
+
+summary(mod_ni_lag21)
+
 mod_ni_lag3 <- 
-  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw + year:SYSTEM_NO
-       | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
+  felm(mean_n ~ d1 + d1lag1 + d1lag2 + d1lag3 
+       + d1:gw
+       + d1lag1:gw
+       + d1lag2:gw
+       + d1lag3:gw
+       + d1:raw
+       + d1lag1:raw
+       + d1lag2:raw
+       + d1lag3:raw 
+       | samplePointID + factor(year) | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
 summary(mod_ni_lag3)
 
-mod_ni_lag4 <-
-  felm(mean_n ~ d + dlag1 + dlag2 + dlag3 
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw 
-       + d:gXr
-       + dlag1:gXr
-       + dlag2:gXr
-       + dlag3:gXr + year:SYSTEM_NO
+mod_ni_lag31 <- 
+  felm(mean_n ~ d1 + d1lag1 + d1lag2 + d1lag3 
+       + d1:gw
+       + d1lag1:gw
+       + d1lag2:gw
+       + d1lag3:gw
+       + d1:raw
+       + d1lag1:raw
+       + d1lag2:raw
+       + d1lag3:raw + 
+         SYSTEM_NO:year
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
-summary(mod_ni_lag4)
-# this function outputs the following effects
-# raw gw, raw sw, treated gw, treated sw
-# only raw gw is impacted; increase in arsenic level!
+summary(mod_ni_lag31)
+
+stargazer::stargazer(mod_ni_lag0, mod_ni_lag1, 
+                     mod_ni_lag2,  mod_ni_lag3,
+                     omit = c(':year'), single.row = TRUE,
+                     column.sep.width = "1pt",
+                     dep.var.labels   = "Mean Nitrate conc. (mg/L)", 
+                     dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
+
+stargazer::stargazer(mod_ni_lag01, mod_ni_lag11, 
+                     mod1_ni_lag21,  mod_ni_lag31,
+                     omit = c(':year'), single.row = TRUE,
+                     column.sep.width = "1pt",
+                     dep.var.labels   = "Mean Nitrate conc. (mg/L)", 
+                     dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"))
 
 df_int <- sum_lags(mod_ni_lag4, int_terms = c('gw0|gXr', 'raw0|gXr', 'raw0|gw0|gXr'))
 plot_coeff(df_int, contaminant = 'ni')

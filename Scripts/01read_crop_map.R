@@ -106,8 +106,29 @@ out <- pws_ag_all %>% mutate(SYSTEM_NO = str_extract(SYSTEM_NO, '\\d+')) %>%
          log_hh_income = log(median_hh_income),
          b_ag_area = if_else(percAgArea >=.4, 1, 0)
          )
-  
-saveRDS(out, "../Data/1int/pws_ind.rds")
+
+# combine with meta data and clay
+
+# clay <- readRDS("../Data/1int/pws_clay_merged.rds")
+# ph <- readRDS("../Data/1int/pws_ph_merged.rds")
+# ownership <- read_csv("../Data/ca_drinkingwatersystems_meta.csv") 
+# 
+# names(ownership) <- names(ownership) %>% str_remove_all("\\s")
+# 
+# ownership <-mutate(ownership, SYSTEM_NO = str_extract(WaterSystemNo, '\\d+'))
+# 
+# ind <- ind %>% left_join(ownership) %>% left_join(clay)
+# 
+# names(ind) <- names(ind) %>% str_replace("-CODE",'C')
+# 
+# ind <- ind %>% mutate(logpop = log(TotalPopulation),
+#                       log_hh_income = log(median_hh_income),
+#                       percent_latino = percent_his*100)
+# 
+# ind <- left_join(ind, ph)
+
+saveRDS(ind, "../Data/1int/pws_ind.rds")
+
 ggplot(out, aes(percAgArea, percent_his)) +
   geom_point() +
   geom_smooth() +

@@ -16,19 +16,59 @@ library(DescTools)
 library(Hmisc)
 library(lfe)
 library(zoo)
+options(scipen=999)
+rm(list = ls())
 
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
-
+home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
 # Read data in ------------------------------------------------------------
 
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
-
 ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+ind <- read_rds(file.path(home, "1int/pws_ind.rds"))
 
-dww <- read_csv(file.path(home, "ca_drinkingwatersystems_meta.csv"))
-names(dww) <- names(dww) %>% str_remove_all("\\s")
-soil <- read_sf("../Data/1int/pws_sf_clay_ph.shp") %>% as_tibble()
+# explore and clean ind
+# there are duplicates in ind
+
+# which are the duplicates?
+# keep only the PWS that are relevant for my analysis
+active <- ind %>% filter()
+ind %>% table()
+# saveRDS(distinct, file.path(home, "1int/pws_ind.rds"))
+
+ind$ResidentialPopulation %>% sum(na.rm = TRUE)
+
+# This dataset covers almost all of California 38168200
+
+ind %>%
+  ggplot(aes(POP_SERV, TotalPopulation)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0)
+
+ind$TotalPopulation %>% sum(na.rm = TRUE)
+
+
+# look at one water system
+
+paramount <- ni %>% filter(SYSTEM_NO=='1910105') 
+
+paramount$samplePointID %>% table()
+
+
+# Generate dataset for data collection ------------------------------------
+
+large <- ind %>% filter(ResidentialPopulation>20000)
+sources <- read_xlsx("../Data/ca_water_qual/siteloc.xlsx")
+sources <- sources %>% 
+  mutate(STATUS = str_to_upper(STATUS))
+
+rel.source <- sources %>% 
+  filter(SYSTEM_NO %in% large$SYSTEM_NO,
+         !(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
+                         'WW', 'IT', 'IR', 'IS', 'DS')))
+
+write_csv(rel.source, file = '../Data/1int/pws_source_prop2.csv')
 
 # read in gridded drought data
 
@@ -38,7 +78,6 @@ pdsi <- readRDS(file.path(home, "drought/pdsi_pws_monthyear.rds")) %>%
   # summarize to PWS - year
   group_by(SABL_PWSID, year) %>% 
   dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
-
 
 # Look at a sub sample of drought time series for some PWS ----------------
 
@@ -56,6 +95,32 @@ pdsi %>%
   theme(axis.text.x = element_text(angle = 45)) +
   scale_color_brewer(palette = "Greens")
 
+
+# Investigate distribution sample points -----------------------------------
+
+ni_dist <- ni_reg_balanced %>% filter(STATUS == 'DT' | STATUS == 'DR' | STATUS == 'DU')
+
+ar_dt %>% 
+  filter(samplePointID %in% sample(ar_dt$samplePointID, 6)) %>% 
+  ggplot(aes(x = sampleDate, y = ar_ugl)) +
+  geom_line(aes(color = samplePointID, group = samplePointID)) +
+  theme_light() +
+  scale_x_continuous(breaks = seq(1980, 2022, 2)) +
+  geom_hline(yintercept = 0, color = 'red') +
+  theme(axis.text.x = element_text(angle = 45)) +
+  scale_color_brewer(palette = "Greens")
+
+# How many PWS just have one sample point
+# Keep only the active ones
+
+dist <- ni %>% 
+  filter(!(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
+                         'WW', 'IT', 'IR', 'IS', 'DS'))) %>% 
+  group_by(SYSTEM_NO, year) %>%
+  # distinct() %>% 
+  count(sort = TRUE)
+  
+dist$n %>% table()
 
 # How many sample point does each PWS have? -------------------------------
 
@@ -200,3 +265,23 @@ all %>% ggplot(aes(n_mgl_w, ar_ugl_w)) +
   geom_point() +
   geom_smooth()
 
+
+# New SWDIS data ----------------------------------------------------------
+
+df <- read_csv("../Data/ca_water_qual/01012019 to present.csv")
+names(df) <- names(df) %>% str_remove_all('\\s')
+
+df_n <- df %>% filter(FacilityType == 'DS', FacilityStatus == 'A',
+                      AnalyteName == 'NITRATE')
+df2 <- read_csv("../Data/ca_water_qual/01012015 to 12312018.csv")
+
+df2 %>% group
+
+names(df2) <- names(df2) %>% str_remove_all('\\s')
+
+df2_n <- df2 %>% filter(FacilityType == 'DS', FacilityStatus == 'A',
+                      AnalyteName == 'NITRATE') %>% 
+  select(samplePointID, sampleDate, n_mgl) %>% left_join(ar, by = c('samplePointID', 'sampleDate')) %>% drop_na(n_mgl, ar_ugl) %>% 
+  mutate(n_mgl_w = Winsorize(n_mgl, probs = c(0, .95)),
+         ar_ugl_w = Winsorize(ar_ugl, probs = c(0, .95))) %>% 
+  filter(WATER_TYPE=="G", raw==1)
