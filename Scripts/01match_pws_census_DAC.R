@@ -68,6 +68,8 @@ ca_stats <- get_acs(
   geometry = TRUE
 )
 
+View(load_variables(2019, 'acs5'))
+
 # I am not sure if the variable name is correct. Seems like total pop latino and total pop is giving me the same thing 2
 ca_stats <- ca_stats %>% mutate(variable_nm = case_when(
   variable == "B19013_001" ~ "median_hh_income",
@@ -77,17 +79,23 @@ ca_stats <- ca_stats %>% mutate(variable_nm = case_when(
   TRUE ~ NA_character_
 )) %>% select(-moe, -variable)
 
+
 # generating some social equality metrics
-ca_stats <- ca_stats %>% spread(key = variable_nm, value = estimate)
-ca_stats <- ca_stats %>% mutate(percent_non_white = (total_pop - total_pop_white)/total_pop,
-                                percent_his = total_pop_latino/total_pop,
-                                income_category = cut_number(median_hh_income, 8, labels = paste0('income_percentile', 1:8))) %>% st_transform(ca_crs)
+ca_stats <-
+  ca_stats %>% spread(key = variable_nm, value = estimate) %>%
+  mutate(
+    percent_non_white = (total_pop - total_pop_white) / total_pop,
+    percent_hispanic = total_pop_latino / total_pop,
+    income_category = cut_number(median_hh_income, 8, labels = paste0('income_percentile', 1:8))
+  ) %>% st_transform(ca_crs)
 
 write_sf(ca_stats, "../Data/shp_ej.shp")
 
 # try for one PWS to aggregate census tract
 
-x <- aggregate(ca_stats[c('median_hh_income', 'percent_his', 'total_pop', 'percent_non_white')], by = st_geometry(pws_shp), mean, areaWeighted = TRUE) 
+x <- aggregate(ca_stats[c('median_hh_income', 'percent_hispanic', 
+                          'total_pop', 'percent_non_white')], by = st_geometry(pws_shp), mean, areaWeighted = TRUE, 
+               na.rm = TRUE) 
 
 pws_shp <- pws_shp %>% bind_cols(x %>% st_drop_geometry())
 
@@ -107,36 +115,32 @@ class(pws_shp)
 
 # for those without shapefile use zip
 
-x <- aggregate(ca_stats[c('median_hh_income', 'percent_his', 'total_pop', 'percent_non_white')], by = st_geometry(pws_zip), mean, areaWeighted = TRUE) 
+x <- aggregate(ca_stats[c('median_hh_income', 'percent_hispanic', 
+                          'total_pop', 'percent_non_white')], 
+               by = st_geometry(pws_zip), mean, areaWeighted = TRUE, na.rm = TRUE) 
 
 pws_zip <- pws_zip %>% bind_cols(x %>% st_drop_geometry())
 
-pws_ej <- pws_zip %>% st_drop_geometry() %>% select(PWSID, median_hh_income, percent_his, total_pop, percent_non_white) %>% mutate(SYSTEM_NO = str_extract(PWSID, "\\d+"))
 
-pws_ej_merged <- pws_ej %>% bind_rows(pws_shp %>% st_drop_geometry() %>% select(SABL_PWSID, median_hh_income, percent_his, total_pop, percent_non_white) %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")))
+pws_ej <-
+  pws_zip %>% st_drop_geometry() %>% select(PWSID,
+                                            median_hh_income,
+                                            percent_hispanic,
+                                            total_pop,
+                                            percent_non_white) %>%
+  mutate(SYSTEM_NO = str_extract(PWSID, "\\d+"))
 
-pws_ej_merged <- pws_ej_merged %>% select(-PWSID, -SABL_PWSID)
+pws_ej_merged <-
+  pws_ej %>% bind_rows(
+    pws_shp %>% st_drop_geometry() %>% select(
+      SABL_PWSID,
+      median_hh_income,
+      percent_hispanic,
+      total_pop,
+      percent_non_white
+    ) %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"))
+  )
+
+pws_ej_merged <- pws_ej_merged %>% select(-PWSID,-SABL_PWSID)
 
 saveRDS(pws_ej_merged, "../Data/1int/pws_ej_ind.rds")
-# # plot relationship between percent hispanic and income
-# 
-# ggplot(data = ca_stats, aes(percent_non_white, median_hh_income)) +
-#   geom_point() +
-#   theme_minimal() +
-#   geom_smooth()
-# 
-# # plot income categories
-# quartz()
-# ggplot(data = ca_stats, aes(fill = income_category)) +
-#   geom_sf() +
-#   scale_fill_brewer(palette = 'YlGnBu')
-# 
-# # plot percent latino/hispanic
-# quartz()
-# ggplot(data = ca_stats, aes(fill = percent_his)) +
-#   geom_sf() 
-
-# Join PWS system information to cross walk to ID GEOID
-# there are some overlaps -- a lot of PWS have similar census tract
-
-# Now: to match PWS to census tract... to compute overlap by areas.

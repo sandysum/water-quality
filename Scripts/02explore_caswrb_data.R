@@ -48,6 +48,9 @@ ind %>%
 
 ind$TotalPopulation %>% sum(na.rm = TRUE)
 
+# Look at EB MUD
+
+la <- ni %>% filter(SYSTEM_NO == '1910067')
 
 # look at one water system
 

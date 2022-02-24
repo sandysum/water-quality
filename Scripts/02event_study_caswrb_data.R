@@ -2,7 +2,7 @@
 # A script to generate event study plots for both Arsenic and Nitrate.
 # sandysum@ucsb.edu
 # 2022/01/06
-
+rm(list = ls())
 library(tidyverse)
 library(readr)
 library(readxl)
@@ -221,8 +221,8 @@ p1 <- plot_es(es_ni, ni_mod, contaminant = 'n',
 save_plot("Plots/ES_treated_ni_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 # ES for latino vs not latino majority
-ej <- readRDS(file.path(home, "1int/pws_ej_ind.rds")) %>% 
-  mutate(b_majority_latino = if_else(percent_his >= .5, 1, 0),
+ej <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
+  mutate(b_majority_latino = if_else(percent_hispanic >= .5, 1, 0),
          b_low_income = if_else(median_hh_income <=46000, 1, 0),
          log_hh_income = log(median_hh_income))
 ni_mod_hlat <- ni %>%
@@ -284,10 +284,10 @@ ni_mod_llat <- ni_mod_llat %>% bind_cols(poly_td, poly_dy)
 
 es_ni_llat <- felm(n_mgl ~ year + td_1 + td_2 + td_3 + dy_1 + dy_2 + dy_3 | samplePointID | 0 | SYSTEM_NO,data = ni_mod_llat)
 
-p1 <- plot_es(es_ni_llat, ni_mod_llat, contaminant = 'n', 
+p2 <- plot_es(es_ni_llat, ni_mod_llat, contaminant = 'n', 
               main  = "Raw groundwater sources nitrate trends for \nPWS serving non-majority Latino population, 1991-2021", ylm = c(3,6))
 
 save_plot("Plots/ES_raw_gw_ni_llat_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
-ej_n <- plot_es2(es_ni_llat, es_ni_hlat, ni_mod_llat, ni_mod_hlat, contaminant = 'n', ylm = c(3,6))
+ej_n <- plot_es2(es_ni_llat, es_ni_hlat, ni_mod_llat, ni_mod_hlat, contaminant = 'n', ylm = c(3,5.6))
 save_plot("Plots/ES_n_ej.png", ej_n, base_asp = 2.5, scale = 1.2)
