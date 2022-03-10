@@ -9,8 +9,10 @@ source("../water-quality/Scripts/helper_functions_models.R")
 
 ar <- read_rds("../Data/1int/as_mod_lag3.rds")
 ni <- read_rds("../Data/1int/ni_mod_lag3.rds")
+
 ni_ej <- read_rds("../Data/1int/n_mod_ej.rds")
 as_ej <- read_rds("../Data/1int/as_mod_ej.rds")
+
 # this function outputs the following effects
 # raw gw, raw sw, treated gw, treated sw
 # only raw gw is impacted; increase in arsenic level!
@@ -103,3 +105,16 @@ ni_reg_balanced %>% group_by(raw, gw) %>%
             sd_n = sd(mean_n, na.rm = TRUE))
 
 
+# Make figures for delivered N and As ----------------------------------------------
+
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+pdsi <- readRDS(file.path(home,"/drought/pdsi_pws_year.rds"))
+
+ni_reg <-read_rds(file.path(home, "1int/caswrb_n_delivered.rds")) %>% 
+  dplyr::select(1:4)
+# ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+
+# Read in and join to social eq ind ---------------------------------------
+# Added this part to run some regression to join social eq indicator
+
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))

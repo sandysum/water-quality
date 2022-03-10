@@ -24,7 +24,7 @@ library(cowplot)
 # https://cacensus.maps.arcgis.com/apps/webappviewer/index.html?id=48be59de0ba94a3dacff1c9116df8b37
 
 # Good website to double check if the census average numbers are correct
-ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds")) 
 
 # %>% 
 #   filter(SYSTEM_NO %in% (str_extract(pws_shp$SABL_PWSID, "\\d+"))) %>% 
@@ -35,7 +35,7 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 # Run some correlational analysis of social indicators --------------------
 
 ar_reg <- read_rds("../Data/1int/caswrb_ar_reg.rds")
-ni_reg <- read_rds("../Data/1int/caswrb_n_reg.rds")
+ni_reg <- read_rds("../Data/1int/caswrb_n_delivered.rds")
 
 # Read in the violations data
 
@@ -63,26 +63,56 @@ as_vio_new <- violations %>%
 
 pws_vio <- ind %>% left_join(as_vio_new, by = "SYSTEM_NO") %>% 
   left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
-  mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0))
+  mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
+  filter(!(FeeCodeDescription %in% c('Dead and Done (not active)', 'Transient-Noncommunity Water System')))
 
 # Run regression for violations -------------------------------------------
 
 mod_v_as_ej_income <-
-  felm(as_violations ~ log_hh_income + percent_latino + percAgArea + OwnerTypeC + avg_percent_clay + logpop + PrimaryWaterSourceTypeC + StateWaterSystemTypeC + OwnerTypeC | 0 | 0 | 0, data = pws_vio)
+  felm(as_violations ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+         avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | 0 | 0 | 0, data = pws_vio)
 
-summary(mod_v_as_ej_income)
+mod_v_as_ej_income_fe <-
+  felm(as_violations ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | CITY | 0 | 0, data = pws_vio) 
+
+m1_df <-
+  broom::tidy(mod_v_as_ej_income) %>% filter(!str_detect(term, "OwnerType|State")) %>% mutate(model = "No FE")
+m2_df <-
+  broom::tidy(mod_v_as_ej_income_fe) %>% filter(!str_detect(term, "OwnerType|State")) %>% mutate(model = "City FE")
+
+two_models <- rbind(m1_df, m2_df)
+
+dwplot(two_models)
+
+dwplot(list(mod_v_as_ej_income, mod_v_as_ej_income_fe))
 
 mod_v_n_ej_income <-
-  felm(n_violations ~ log_hh_income + percent_latino + percAgArea + OwnerTypeC + avg_percent_clay + logpop + PrimaryWaterSourceTypeC + StateWaterSystemTypeC + OwnerTypeC | 0 | 0 | 0, data = pws_vio)
+  felm(n_violations ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+         avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | 0 | 0 | 0, data = pws_vio)
+
+mod_v_n_ej_income_fe <-
+  felm(n_violations ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | CITY | 0 | 0, data = pws_vio) 
+
+# m1_df <-
+#   broom::tidy(mod_v_as_ej_income) %>% filter(!str_detect(term, "OwnerType|State")) %>% mutate(model = "No FE")
+# m2_df <-
+#   broom::tidy(mod_v_as_ej_income_fe) %>% filter(!str_detect(term, "OwnerType|State")) %>% mutate(model = "City FE")
+# 
+# two_models <- rbind(m1_df, m2_df) %>% 
+#   mutate(estimate = if_else(str_detect(term, 'perc'), estimate*10, estimate),
+#          std.error = if_else(str_detect(term, 'perc'), std.error*10, std.error))
+# 
+# dwplot(two_models)
 
 summary(mod_v_n_ej_income)
 
-stargazer::stargazer(mod_v_n_ej_income, mod_v_as_ej_income,
+stargazer::stargazer(mod_v_n_ej_income, mod_v_n_ej_income_fe, mod_v_as_ej_income, mod_v_as_ej_income_fe,
                      dep.var.labels.include = FALSE,
                      title = "Corr. of PWS features and violations",
                      column.separate = c(1,1),
                      column.labels = c("# Violations N", "# Violations As"),
                      omit = "Constant",
+                     digits = 2,
                      single.row = TRUE,
                      omit.stat = c("adj.rsq", "ser"))
 
@@ -97,22 +127,24 @@ ggplot(pws_vio, aes(avg_percent_clay, percAgArea)) +
 # filter to raw and in the last 10 years
 as_pws_10yr <- ar_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
   group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
-  summarize(pws_as_mean = mean(mean_as, na.rm = TRUE),
+  dplyr::summarize(pws_as_mean = mean(mean_as, na.rm = TRUE),
             pws_as_median = median(mean_as, na.rm = TRUE)) %>% 
   left_join(ind) %>% 
   ungroup() %>% 
   mutate(log_hh_income = log(median_hh_income),
-         perc_latino = percent_his*100,
-         before2006 = FALSE)
+         perc_latino = percent_hispanic*100,
+         before2006 = FALSE)%>% 
+  filter(!(FeeCodeDescription %in% c('Dead and Done (not active)', 'Transient-Noncommunity Water System')))
 
-as_pws_10yr_pre <- ar_reg %>% filter(raw==1, year <2006) %>% 
+as_pws_10yr_pre <- ar_reg %>% filter(raw==1, year <2005) %>% 
   group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
+  
   summarize(pws_as_mean = mean(mean_as, na.rm = TRUE),
             pws_as_median = median(mean_as, na.rm = TRUE)) %>% 
   left_join(ind) %>% 
   ungroup() %>% 
   mutate(log_hh_income = log(median_hh_income),
-         perc_latino = percent_his*100,
+         perc_latino = percent_hispanic*100,
          before2006 = TRUE)
 
 as_pws <- as_pws_10yr %>% bind_rows(as_pws_10yr_pre)
@@ -122,35 +154,46 @@ as_pws %>% ggplot(aes(log_hh_income, pws_as_median, color = before2006)) +
   geom_smooth() +
   theme_minimal()
 
-mod_as_ej_income <- felm(pws_as_median ~ log_hh_income + percent_latino + percAgArea + OwnerTypeC + avg_percent_clay + logpop + PrimaryWaterSourceTypeC + StateWaterSystemTypeC + OwnerTypeC | 0 | 0 | 0, data = as_pws_10yr)
+mod_as_ej_income <- felm(pws_as_mean ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+                           avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | 0 | 0 | 0, data = as_pws_10yr)
+
+mod_as_ej_income_fe <- felm(pws_as_mean ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+                              avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | CITY | 0 | 0, data = as_pws_10yr)
+
 
 summary(mod_as_ej_income)
 
 # Q1 are DAC getting worst raw water?
 n_pws_10yr <- ni_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
   group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
-  summarize(pws_n_mean = mean(mean_n, na.rm = TRUE),
+  dplyr::summarize(pws_n_mean = mean(mean_n, na.rm = TRUE),
             pws_n_median = median(mean_n, na.rm = TRUE)) %>% 
   left_join(ind) %>% 
   ungroup() %>% 
   mutate(log_hh_income = log(median_hh_income),
-         perc_latino = percent_his*100)
+         perc_latino = percent_hispanic*100)%>% 
+  filter(!(FeeCodeDescription %in% c('Dead and Done (not active)', 'Transient-Noncommunity Water System')))
 quartz()
-n_pws_10yr %>% ungroup() %>% ggplot(aes(percAgArea, pws_n_median)) +
+n_pws_10yr %>% ungroup() %>% ggplot(aes(percAgArea, pws_n_mean)) +
   geom_point(alpha = .5) +
   geom_smooth() +
   theme_minimal()
 
 
-mod_n_ej_income <- felm(pws_n_median ~ log_hh_income + percent_latino + percAgArea + OwnerTypeC + avg_percent_clay + logpop + PrimaryWaterSourceTypeC + StateWaterSystemTypeC + OwnerTypeC | 0 | 0 | 0, data = n_pws_10yr)
+mod_n_ej_income <- felm(pws_n_mean ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+                          avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | 0 | 0 | 0, data = n_pws_10yr)
 
-summary(mod_n_ej_income)
+mod_n_ej_income_fe <- felm(pws_n_mean ~ log_hh_income + percent_latino + percAgArea + log_residential_pop + 
+                             avg_percent_ph + avg_percent_clay +  OwnerType + StateWaterSystemType | CITY | 0 | 0, data = n_pws_10yr)
 
-stargazer::stargazer(mod_n_ej_income, mod_as_ej_income,
+summary(mod_n_ej_income_fe)
+
+stargazer::stargazer(mod_n_ej_income, mod_n_ej_income_fe, mod_as_ej_income, mod_as_ej_income_fe,
                      dep.var.labels.include = FALSE,
                      title = "Corr. of PWS features and contaminant conc.",
                      column.separate = c(1,1),
-                     column.labels = c("Median N (mg/l)", "Median As (ug/l)"),
+                     digits = 2, 
+                     column.labels = c("Median N (mg/l)", "Median N (mg/l)", "Median As (ug/l)", "Median As (ug/l)"),
                      omit = "Constant",
                      single.row = TRUE,
                      omit.stat = c("adj.rsq", "ser"))

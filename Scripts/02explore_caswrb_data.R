@@ -26,7 +26,9 @@ home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
 ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
-ind <- read_rds(file.path(home, "1int/pws_ind.rds"))
+ind <- read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+
+ni.delivered <- read_rds(file.path(home, "1int/caswrb_n_delivered.rds"))
 
 # explore and clean ind
 # there are duplicates in ind
@@ -116,12 +118,13 @@ ar_dt %>%
 # How many PWS just have one sample point
 # Keep only the active ones
 
-dist <- ni %>% 
+ni2 <- ni %>% 
   filter(!(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
                          'WW', 'IT', 'IR', 'IS', 'DS'))) %>% 
   group_by(SYSTEM_NO, year) %>%
   # distinct() %>% 
-  count(sort = TRUE)
+  add_count() %>% 
+  relocate(n, .after = samplePointID)
   
 dist$n %>% table()
 
@@ -230,28 +233,26 @@ ar %>%
 
 # how many monitoring station has data from 1990-2021?
 
+q <- sample(unique(ni$SYSTEM_NO), 6)
+ni <- subset_years(2001, ni, 2021)
+set.seed(5)
+q <- sample(unique(ni$SYSTEM_NO), 6)
 ni %>% 
-  # filter(samplePointID==)
-  group_by(samplePointID) %>% 
-  summarise(counts = n()) %>% 
-  select(counts) %>% 
-  table()
-
-ni %>% 
+  filter(raw == 1, SYSTEM_NO %in% q) %>% 
   # filter(CITY=="MADERA") %>%
-  group_by(year, raw) %>%
+  group_by(year, SYSTEM_NO) %>%
   summarise(mean_n = mean(n_mgl, na.rm = TRUE),
             median_n = median(n_mgl, na.rm = TRUE),
             stdd = sd(n_mgl, na.rm = TRUE),
             n_obs = n()) %>%
-  ggplot(aes(year, median_n, color = factor(raw))) +
-  geom_line() +
-  geom_point(aes(year, mean_n, color = factor(raw))) +
+  ggplot(aes(year, mean_n, color = factor(SYSTEM_NO))) +
+  geom_line(size = 1.5) +
+  # geom_point(aes(year, mean_n, color = factor(raw))) +
   geom_vline(xintercept = 2006) +
+  geom_hline(yintercept = 10, color = 'red', alpha = .6) +
   theme_minimal() +
-  scale_x_continuous(breaks = seq(1975,2021,2)) +
-  theme(axis.text.x = element_text(angle = 45)) +
-  scale_color_discrete(type = c("lightblue", "orange"))
+  scale_color_brewer(palette = 'Set3') +
+  scale_x_continuous(breaks = seq(1975,2021,2)) 
 
 # create sample-year data; need to do some kind of event study
 
@@ -288,3 +289,98 @@ df2_n <- df2 %>% filter(FacilityType == 'DS', FacilityStatus == 'A',
   mutate(n_mgl_w = Winsorize(n_mgl, probs = c(0, .95)),
          ar_ugl_w = Winsorize(ar_ugl, probs = c(0, .95))) %>% 
   filter(WATER_TYPE=="G", raw==1)
+
+# Make plots for delivered N and Ar 
+
+delivered_n_all_summary <-
+  delivered_n_all %>% group_by(b_majority_latino, b_low_income, year) %>%
+  dplyr::summarize(mean_n_exposure = mean(mean_n, na.rm = TRUE)) %>% 
+  drop_na() %>% 
+  mutate(metric = 'delivered')
+
+
+ggplot(delivered_n_all_summary, aes(year, mean_n_exposure)) +
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .002, fill="indianred1")+
+  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  geom_point(aes(color = factor(b_majority_latino), shape = factor(b_low_income))) + 
+  theme_light() +
+  scale_color_brewer(palette = 'Set1') +
+  xlim(c(1985, 2022)) +
+  ylim(c(0, 7))
+
+delivered_as_all_summary <-
+  delivered_ar_all %>% group_by(b_majority_latino, b_low_income, year) %>%
+  dplyr::summarize(mean_as_exposure = mean(mean_as, na.rm = TRUE)) %>% 
+  drop_na()
+
+
+ggplot(delivered_as_all_summary, aes(year, mean_as_exposure)) +
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .002, fill="indianred1")+
+  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  geom_point(aes(color = factor(b_majority_latino), shape = factor(b_low_income))) + 
+  theme_light() +
+  scale_color_brewer(palette = 'Set1') +
+  xlim(c(1985, 2022)) 
+
+# Make plots for raw N and Ar 
+
+raw_n_all_summary <-
+  n %>% 
+  filter(raw==1) %>% 
+  left_join(ind) %>% 
+  group_by(b_majority_latino, b_low_income, year) %>%
+  dplyr::summarize(mean_n_exposure = mean(n_mgl, na.rm = TRUE)) %>% 
+  drop_na() %>% 
+  mutate(metric = 'raw')
+
+n_bind <- bind_rows(delivered_n_all_summary, raw_n_all_summary)
+
+
+ggplot(raw_n_all_summary, aes(year, mean_n_exposure, color = metric)) +
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .002, fill="indianred1")+
+  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  geom_point() +
+  facet_grid(rows = vars(b_majority_latino), cols = vars(b_low_income)) +
+  theme_light() +
+  scale_color_brewer(palette = 'Set1') +
+  xlim(c(1985, 2022)) 
+
+delivered_as_all_summary <-
+  delivered_ar_all %>% group_by(b_majority_latino, b_low_income, year) %>%
+  dplyr::summarize(mean_as_exposure = mean(mean_as, na.rm = TRUE)) %>% 
+  drop_na()
+
+
+ggplot(delivered_as_all_summary, aes(year, mean_as_exposure)) +
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .002, fill="indianred1")+
+  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .002,fill="indianred1")+
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  geom_point(aes(color = factor(b_majority_latino), shape = factor(b_low_income))) + 
+  theme_light() +
+  scale_color_brewer(palette = 'Set1') +
+  xlim(c(1985, 2022)) 
+  
+  

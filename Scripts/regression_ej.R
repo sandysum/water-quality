@@ -26,7 +26,8 @@ library(gt)
 
 # Good website to double check if the census average numbers are correct
 ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
-  mutate(OwnerType = ifelse(OwnerType=='#N/A', NA, OwnerType))
+  na_if("#N/A") %>% 
+  mutate(log_residential_pop = log(ResidentialPopulation))
 
 # %>% 
 #   filter(SYSTEM_NO %in% (str_extract(pws_shp$SABL_PWSID, "\\d+"))) %>% 
@@ -67,7 +68,7 @@ pws_vio <- ind %>% left_join(as_vio_new, by = "SYSTEM_NO") %>%
   left_join(ni_vio_new, by = "SYSTEM_NO") %>% 
   mutate_at(vars(matches("_violations")), ~replace(.,is.na(.), 0)) %>% 
   mutate(log_hh_income = log(median_hh_income),
-         perc_latino = percent_his*100,
+         perc_latino = percent_hispanic*100,
          median_hh_income_cat = cut_interval(median_hh_income, 10, labels = 1:10),
          perc_latino_cat = cut_interval(perc_latino, 10, labels = 1:10),
          arcsinh_n_vio = log(n_violations+sqrt((n_violations^2)+1)),
@@ -76,7 +77,7 @@ pws_vio <- ind %>% left_join(as_vio_new, by = "SYSTEM_NO") %>%
 
 # Create summary table for export -----------------------------------------
 
-summ <- pws_vio %>% select(percAgArea, TotalPopulation, 
+summ <- pws_vio %>% select(percAgArea, percent_latino, AREA_SERVE,TotalPopulation, 
                            TransientPopulation, ResidentialPopulation, 
                            NumberofServiceConnectionsAgricultural,
                            NumberofResidentialServiceConnections,
@@ -84,9 +85,9 @@ summ <- pws_vio %>% select(percAgArea, TotalPopulation,
                            NumerofInstitutionalServiceConections,
                            TotalNumberofServiceConnections,
                            avg_percent_clay,
-                           avg_percent_ph,
-                           percent_latino, median_hh_income, 
-                           n_violations, as_violations, PrimaryWaterSourceType)
+                           avg_percent_ph, median_hh_income, 
+                           PrimaryWaterSourceType,
+                           n_violations, as_violations)
 
 stargazer(as.data.frame(summ), digits = 0)
 

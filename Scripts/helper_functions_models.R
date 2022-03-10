@@ -1,3 +1,38 @@
+# load the necessary packages at the start of sourcing the script
+library(broom)
+library(lfe)
+library(dotwhisker)
+
+
+
+plot.means <- function(var.name, df, by.var) {
+  
+  summary.c <- df %>% group_by(!!rlang::sym(by.var)) %>% 
+    summarise(mean.c = mean(!!rlang::sym(var.name), na.rm = TRUE), 
+              se.c = var(!!rlang::sym(var.name), na.rm = TRUE) %>% sqrt())
+  
+  ggplot(summary.c, aes(x=!!rlang::sym(by.var), y=mean.c)) + 
+    geom_errorbar(aes(ymin=mean.c-se.c, ymax=mean.c+se.c), width=.1) +
+    geom_line() +
+    geom_point() +
+    theme_bw() +
+    # scale_x_continuous(1:12) +
+    # scale_x_continuous(breaks = seq(2000, 2014, 2)) +
+    ylab("Mean conc. (ug/m3)") +
+    xlab(str_to_sentence(by.var)) +
+    labs(title = var.name %>% str_extract(".+(?=(_conc))"))
+}
+
+add_drought <- function(p) {p + 
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
+  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+}
 plot_es <- function(es, df, contaminant = "ar", main = "",
                     ylm = c(0,8)) {
   df %>% drop_na(SYSTEM_NO, contains("td"), contains("dy"), year, ZIP)
@@ -38,7 +73,7 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
       # geom_smooth() +
       theme_minimal_hgrid() +
       ggtitle(label = main) +
-      scale_x_continuous(breaks = 1990:2021) +
+      scale_x_continuous(breaks = 1990:202) +
       theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
             plot.background = element_rect(fill = "white", color = NA)) +
       lims(y = ylm)
@@ -239,6 +274,23 @@ subset_years <- function(year_start, pollutant, year_end, by = 1) {
   
 }
 
+subset_years_cws <- function(year_start, pollutant, year_end, by = 1) {
+  years_desired <- seq(year_start, year_end, by = by)
+  
+  n_years <- seq(year_start, year_end, by = by) %>% length()
+  
+  pollutant_int <- pollutant %>% 
+    filter(year>=year_start) %>% 
+    group_by(SYSTEM_NO) %>% 
+    filter(n()>=n_years, min(year)<= year_start, max(year)>=year_end) %>% 
+    arrange(SYSTEM_NO, year) %>% 
+    mutate(diff_year = lead(year)-year) %>% 
+    filter(max(diff_year, na.rm = TRUE)==1, year>=year_start, year <= year_end)
+  
+  return(pollutant_int)
+  
+}
+
 # mod <- mod_ar_lag3
 
 # this function returns the sum of lagged coefficients
@@ -388,5 +440,60 @@ plot_coeff_lags <-
            subtitle = t)
   }
 
+plot_int <- function(mod, nlags=0) {
+  df <- mod %>% broom::tidy()
+  ggplot(df, aes(x = term, y = estimate)) +
+    geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+                  width = .1) +
+    theme_minimal_vgrid() +
+    # ylim(c(-1, 1)) +
+    # scale_y_continuous(n.breaks = 11) +
+    # coord_flip() +
+    # labs(x = ' ', y = yl,
+    #      subtitle = t)
+    geom_hline(yintercept = 0, color = 'red') +
+    geom_point() 
+ 
+}
+
 # save_plot("Plots/cumulative_lagged_effects_ar.png", plot_coeff(df), scale = 1,
 #           base_asp = 2)
+smallerMod = function(mod) {
+  # mod$residuals = NULL
+  mod$response = NULL
+  mod$c.fitted.values = NULL
+  mod$fitted.values = NULL
+  mod$r.residuals = NULL
+  return(mod)
+}
+
+
+reg_delivered <- function(df, nlags, xvar, yvar, fe = "0", clust = "0", plot = TRUE) {
+  
+  # created list with list of x var in it.
+  # for now fe is fixed
+  form = map(xvar, function(x) { as.formula(paste0(yvar, " ~ ", x,   " | ", fe, " | 0 | ", clust)) })
+  
+  mod <- map(form, ~( smallerMod(felm(formula = ., data = df)))) 
+  
+  # if opt to output plot then return the plot as from dw
+  if (plot) {
+   mod <- mod %>% map(broom::tidy) %>% 
+      map(~(.x %>% mutate(model = paste('mod', which(unlist(xvar)==.x$term %>% paste(collapse = '+')))) %>% 
+              filter(!str_detect(term, ':year')))) 
+ dwplot(bind_rows(mod)) + theme_minimal()
+      
+  } else {
+    if (yvar == 'mean_n') {
+      lb = 'N (mg/l)'
+    } else {
+      lb = 'As (ug/l)'
+    }
+    stargazer(mod, omit = ':year|Constant', 
+              title = 'Impacts of a unit increase in drought measure',
+              dep.var.labels = paste0('Mean concentration of ', lb), type = 'html',
+              style = 'qje', digits = 3,
+              # add.lines = list(c("Fixed effects?", "CWS and year",  "CWS and year", "CWS linear trends", "CWS linear trends")),
+              single.row = TRUE)
+  }
+  }

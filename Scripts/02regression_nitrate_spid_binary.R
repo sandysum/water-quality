@@ -14,16 +14,19 @@ library(cowplot)
 source("Scripts/helper_functions_models.R")
 options(digits=3)
 # Read in data ------------------------------------------------------------
+home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
 ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
+ni_reg <-read_rds(file.path(home, "1int/caswrb_n_delivered.rds"))
 # ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 
 # Read in and join to social eq ind ---------------------------------------
 # Added this part to run some regression to join social eq indicator
 
-ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
+  distinct()
 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
@@ -31,14 +34,14 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 
 # this function subsets to only balanced panels that has the
 
-ni_reg_balanced <- subset_years(2001, pollutant = ni_reg, 2020, 1)
+ni_reg_balanced <- subset_years_cws(2001, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   group_by(samplePointID) %>% 
   mutate(
-    d = if_else(mean_pdsi <= -1, 1, 0), 
+    d = if_else(mean_pdsi <= -1.5, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),

@@ -12,7 +12,7 @@ library(lfe)
 library(DescTools)
 library(future.apply)
 library(cowplot)
-source("Scripts/helper_functions_models.R")
+source("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 
 # Read in data ------------------------------------------------------------
 

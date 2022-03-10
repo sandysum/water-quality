@@ -28,11 +28,11 @@ library(sp)
 n_reg <- readRDS("../Data/1int/caswrb_n_reg.rds")
 ca_crs <- 3488
 sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
-pws_shp <- read_sf("../Data/shp_PWS_SABL_Public_080221/SABL_Public_080221.shp") %>% 
+pws_shp <- read_sf(file.path(home, "shp_PWS_SABL_Public_080221/SABL_Public_080221.shp")) %>% 
   st_transform(ca_crs)
 # luckily I have ensured that this dataset of pws_zip contains all the zip shape files of all the pws that ever appeared in the monitoring dataset 
 
-pws_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp") %>% 
+pws_zip <- read_sf(file.path(home, "/shp_PWS_SABL_Public_080221/PWS_by_zip.shp")) %>% 
   st_transform(ca_crs)
 
 # This crosswalk is a horrible aggregation to match PWS to census tract
@@ -63,7 +63,9 @@ ca_stats <- get_acs(
   # Median household income in the past 12 months (in 2019 inflation-adjusted dollars)
   # https://api.census.gov/data/2019/acs/acs5/groups/B19013.html
   # median income, total population, total hispanic or latino, total white
-  variables = c("B19013_001", "B01003_001", "B03001_003E", "B02001_002"),
+  # percent speak spanish, speak other language and english not well, less than HS graduates
+  variables = c("B19013_001", "B01003_001", "B03001_003E", "B02001_002", "B06007_003", "B06007_008",
+                "B16010_002"),
   state = "CA", 
   geometry = TRUE
 )
@@ -76,17 +78,22 @@ ca_stats <- ca_stats %>% mutate(variable_nm = case_when(
   variable == "B01003_001" ~ "total_pop",
   variable == "B03001_003" ~ "total_pop_latino",
   variable == "B02001_002" ~ "total_pop_white",
+  variable == 'B06007_003' ~ "total_pop_speak_spanish",
+  variable == 'B06007_008' ~ "total_pop_english_not_well",
+  variable == 'B16010_002' ~ "total_pop_low_edu",
   TRUE ~ NA_character_
-)) %>% select(-moe, -variable)
+)) %>% dplyr::select(-moe, -variable)
 
 
 # generating some social equality metrics
 ca_stats <-
   ca_stats %>% spread(key = variable_nm, value = estimate) %>%
   mutate(
-    percent_non_white = (total_pop - total_pop_white) / total_pop,
-    percent_hispanic = total_pop_latino / total_pop,
-    income_category = cut_number(median_hh_income, 8, labels = paste0('income_percentile', 1:8))
+    percent_non_white = ((total_pop - total_pop_white) / total_pop) *100,
+    percent_hispanic = (total_pop_latino / total_pop)*100,
+    percent_low_edu = (total_pop_low_edu / total_pop)*100,
+    percent_spanish_speaker = (total_pop_speak_spanish / total_pop)*100,
+    percent_not_fluent_english = (total_pop_english_not_well / total_pop)*100
   ) %>% st_transform(ca_crs)
 
 write_sf(ca_stats, "../Data/shp_ej.shp")
@@ -94,7 +101,8 @@ write_sf(ca_stats, "../Data/shp_ej.shp")
 # try for one PWS to aggregate census tract
 
 x <- aggregate(ca_stats[c('median_hh_income', 'percent_hispanic', 
-                          'total_pop', 'percent_non_white')], by = st_geometry(pws_shp), mean, areaWeighted = TRUE, 
+                          'total_pop', 'percent_non_white', 'percent_low_edu', 'percent_spanish_speaker', 'percent_not_fluent_english')], 
+               by = st_geometry(pws_shp), mean, areaWeighted = TRUE, 
                na.rm = TRUE) 
 
 pws_shp <- pws_shp %>% bind_cols(x %>% st_drop_geometry())
@@ -116,7 +124,8 @@ class(pws_shp)
 # for those without shapefile use zip
 
 x <- aggregate(ca_stats[c('median_hh_income', 'percent_hispanic', 
-                          'total_pop', 'percent_non_white')], 
+                          'total_pop', 'percent_non_white', 'percent_low_edu', 
+                          'percent_spanish_speaker', 'percent_not_fluent_english')], 
                by = st_geometry(pws_zip), mean, areaWeighted = TRUE, na.rm = TRUE) 
 
 pws_zip <- pws_zip %>% bind_cols(x %>% st_drop_geometry())
@@ -127,7 +136,10 @@ pws_ej <-
                                             median_hh_income,
                                             percent_hispanic,
                                             total_pop,
-                                            percent_non_white) %>%
+                                            percent_non_white,
+                                            percent_not_fluent_english,
+                                            percent_spanish_speaker,
+                                            percent_low_edu) %>%
   mutate(SYSTEM_NO = str_extract(PWSID, "\\d+"))
 
 pws_ej_merged <-
@@ -137,10 +149,13 @@ pws_ej_merged <-
       median_hh_income,
       percent_hispanic,
       total_pop,
-      percent_non_white
+      percent_non_white,
+      percent_not_fluent_english,
+      percent_spanish_speaker,
+      percent_low_edu
     ) %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"))
   )
 
 pws_ej_merged <- pws_ej_merged %>% select(-PWSID,-SABL_PWSID)
 
-saveRDS(pws_ej_merged, "../Data/1int/pws_ej_ind.rds")
+saveRDS(pws_ej_merged, file.path(home,"/1int/pws_ind.rds"))

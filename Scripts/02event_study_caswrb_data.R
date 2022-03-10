@@ -12,9 +12,8 @@ library(ggplot2)
 library(DescTools)
 library(cowplot)
 library(lfe)
-source("Scripts/helper_functions_models.R")
-
-home <- "../Data/"
+source("/Users/sandysum/Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
+home <- "/Users/sandysum/Google Drive/My Drive/0Projects/1Water/2Quality/Data/"
 
 # Read data in ------------------------------------------------------------
 
@@ -39,6 +38,8 @@ ar_mod <- ar %>%
     dy = yday(sampleDate),
     year = factor(year)
   ) 
+# looks like all random noise!
+# plot.means("ar_ugl", df = ar_mod, by.var = 'dy')
 
 # drop rows with no time of sample
 ar_mod <- ar_mod %>% tidyr::drop_na(td, dy)
@@ -137,7 +138,9 @@ ni_mod <- ni %>%
     dy = yday(sampleDate),
     year = factor(year),
     n() == 1 # tells me if this is a duplicate
-  ) 
+  ) %>% filter(td<25)
+
+# plot.means("n_mgl", df = ni_mod, by.var = 'td')
 
 # drop rows with no time of sample
 ni_mod <- ni_mod %>% tidyr::drop_na(td, dy)
@@ -167,8 +170,8 @@ ni_mod <- ni %>%
     %>% if_else((. == 44 | . == 80), NA_real_, .),
     dy = yday(sampleDate),
     year = factor(year)
-  ) 
-
+  ) %>% filter(td <25)
+plot.means("n_mgl", df = ni_mod, by.var = 'dy')
 # drop rows with no time of sample
 ni_mod <- ni_mod %>% tidyr::drop_na(td, dy)
 
