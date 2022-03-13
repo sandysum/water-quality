@@ -22,7 +22,7 @@ pws <- read_csv(file.path(home, "/SDWA-DL/SDWA_PUB_WATER_SYSTEMS.csv"))
 dww <- read.csv("../Data/ca_drinkingwatersystems_meta.csv")
 violations <- read_csv(file.path(home, "/SDWA-data/SDWA_VIOLATIONS_CA.csv"))
 # write_csv(violations %>%  filter(STATE=="CA" & HEALTH_BASED == 'Y'), file.path(home, "/SDWA-data/SDWA_VIOLATIONS_CA.csv"))
-
+ind <- readRDS("../Data/1int/pws_ind.rds")
 # read in PWS level monitoring data/to filter only the PWS that we have monitoring data for!
 ni_reg <-read_rds(file.path(home, "1int/caswrb_n_reg.rds"))
 
@@ -55,7 +55,7 @@ pws %>% group_by(PWSID) %>% summarise(count = n())
 vio <- violations %>% 
   filter(STATE=="CA" & RULE_NAME == "Nitrates" & HEALTH_BASED == "Y") %>% 
   mutate(SYSTEM_NO = str_extract(PWSID, "(?<=CA)\\d+")) %>% 
-  left_join(loc)
+  left_join(ind)
 
 # Nitrate ----------------
 
@@ -79,22 +79,27 @@ violations %>%  filter(STATE=="CA") %>% dplyr::select(BEGIN_YEAR, VIOLATION_ID) 
 violations %>%  filter(STATE=="CA") %>% dplyr::select(FISCAL_YEAR, VIOLATION_ID) %>% distinct() %>% select(FISCAL_YEAR) %>% table()
 
 # Community water systems shall conduct monitoring to determine compliance with the maximum contaminant levels specified in § 141.62 in accordance with this section. Non-transient, non-community water systems shall conduct monitoring to determine compliance with the maximum contaminant levels specified in § 141.62 in accordance with this section. Transient, non-community water systems shall conduct monitoring to determine compliance with the nitrate and nitrite maximum contaminant levels in §§ 141.11 and 141.62 (as appropriate) in accordance with this section.
-  
+p <- ni_reg_balanced %>% 
+  left_join(pdsi, c("year", "SYSTEM_NO"))
+
+# use this to normalize pdsi
+mean.d <- mean(p$mean_pdsi, na.rm = TRUE)
+sd.d <- sd(p$mean_pdsi, na.rm = TRUE)
 reg_ni <- pdsi %>% 
   ungroup() %>% 
   # filter to year in relevant years and to pws in the main monitoring dataset
   # might want to consider poisson for modeling counts
   left_join(ni_vio_new, by = c('SABL_PWSID' = 'PWSID', 'year', 'SYSTEM_NO')) %>% 
-  left_join(pws, by = c('SABL_PWSID' = 'PWSID')) %>% 
+  left_join(ind) %>% 
   # left_join(dww %>% dplyr::select(Water.System.No, Total.Population), by = c('SABL_PWSID' = 'Water.System.No')) %>%
   # we only want to include PWS that are monitored under the EPA see section above
-  filter(year %in% 2001:2021, !is.na(PWS_TYPE_CODE)) %>% 
+  filter(year %in% 2001:2021) %>% 
   mutate(n_new_violations = replace_na(n_new_violations, 0)) %>% 
   group_by(SYSTEM_NO) %>% 
   arrange(SYSTEM_NO, year) %>% 
   mutate(
     # d = mean_pdsi, 
-    d = if_else(mean_pdsi<=-1, 1, 0),
+    d = ((mean_pdsi-mean.d)*-1)/sd.d,
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -102,18 +107,18 @@ reg_ni <- pdsi %>%
     dlag3 = lag(dlag2),
     dlag4 = lag(dlag3),
     dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5)) %>% 
-  mutate(
-    PWSID = factor(SABL_PWSID),
-    CITY_NAME = factor(CITY_NAME),
-    gw = if_else((PRIMARY_SOURCE_CODE == "GW" | PRIMARY_SOURCE_CODE == "GWP"), 1, 0),
-    gw = factor(gw, levels = c('1', '0'))
-  )
+    dlag6 = lag(dlag5)) 
 
 # run regressions
-
-mod_vio_ni <- felm(n_new_violations ~ d + dlag1 + dlag2 + dlag3 + year:CITY_NAME | PWSID | 0 | PWSID, data = reg_ni)
-summary(mod_vio_ni)
+# xvar = list('d', paste(c('d', 'd:b_majority_latino'), collapse = '+'), 
+#             paste(c('d', 'd:b_majority_latino', 'd:log_hh_income'), collapse = '+'),
+#             paste(c('d', 'd:b_majority_latino', 'd:log_hh_income', 'd:percent_ag'), collapse = '+'),
+#             paste(c('d', 'd:b_majority_latino', 'd:log_hh_income', 'd:percent_ag', 'd:avg_percent_clay'), collapse = '+'),
+#             paste(c('d', 'd:b_majority_latino', 'd:log_hh_income', 'd:percent_not_fluent_english'), collapse = '+'),
+#             paste(c('d', 'd:b_majority_latino', 'd:log_hh_income', 'd:log_pop'), collapse = '+'))
+# 
+# mod_vio_ni <- felm(n_new_violations ~ d | SYSTEM_NO + year | 0 | 0, data = reg_ni)
+# summary(mod_vio_ni)
 
 mod_vio_ni2 <- felm(n_new_violations ~ d + dlag1 + dlag2 + dlag3
                    + d:gw + dlag1:gw + dlag2:gw + dlag3:gw + year:CITY_NAME | PWSID | 0 | PWSID, data = reg_ni)

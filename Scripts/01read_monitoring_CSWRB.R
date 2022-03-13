@@ -139,56 +139,65 @@ saveRDS(ar_reg, "../Data/1int/caswrb_ar_reg.rds")
 
 # 2. Create a dataset that is at the system no. year for delivered water to household or non-transient
 
-as_list <- ar %>% 
-  left_join(ind) %>% 
-  filter(!(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
-                         'WW', 'IT', 'IR', 'IU', 'IS', 'DS')),
-         StateWaterSystemTypeC!='NC') %>% 
-  group_by(SYSTEM_NO, year) %>% 
-  add_count() %>% 
-  mutate(only_one_obs = if_else(n==1, 1, 0)) 
+state = c('pessimistic', 'optimistic')
+ratio_best = c(.9, .1)
 
-# the second list is the spidXy that has only one observations
-# I split the spid x year data into cases to assess which spid should be considered 'delivered'
-# the first one is delivered as there is only 1 sample from 1 spid in that year
-
-as.list <- split(as_list, f = as_list$only_one_obs)
-
-as.list.index <- as.list[[1]] %>% select(SYSTEM_NO, year) %>% distinct()
-
-delivered_as1 <- as.list[[2]] %>% 
-  select(SYSTEM_NO, year, ar_ugl) %>% 
-  group_by(SYSTEM_NO, year) %>% 
-  summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
-            median_as = median(ar_ugl, na.rm = TRUE)) 
-
-# generate function
-
-select_delivered_spid <- function(j, ls) {
-  ind <- as.list.index[j, ]
-  tmp <- ls %>% right_join(ind)
-  treated <- tmp %>% filter(STATUS %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU'))
-  if (nrow(treated)>0) {
-    delivered <- treated %>% group_by(SYSTEM_NO, year) %>% 
-      summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
-                median_as = median(ar_ugl, na.rm = TRUE)) 
-  } else {
-    delivered <- tmp %>% group_by(SYSTEM_NO, year) %>% 
-      summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
-                median_as = median(ar_ugl, na.rm = TRUE)) 
+map2(state, ratio_best, function(s, r) {
+  n_list <- ar %>% 
+    # left_join(ind) %>% 
+    filter(!(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
+                           'WW', 'IT', 'IR', 'IU', 'IS', 'DS'))) %>% 
+    group_by(SYSTEM_NO, year) %>% 
+    add_count() %>% 
+    mutate(only_one_obs = if_else(n==1, 1, 0)) 
+  
+  # the second list is the spidXy that has only one observations
+  # I split the spid x year data into cases to assess which spid should be considered 'delivered'
+  # the first one is delivered as there is only 1 sample from 1 spid in that year
+  
+  n.list <- split(n_list, f = n_list$only_one_obs)
+  
+  n.list.index <- n.list[[1]] %>% select(SYSTEM_NO, year) %>% distinct()
+  
+  delivered_n1 <- n.list[[2]] %>% 
+    select(SYSTEM_NO, year, ar_ugl) %>% 
+    group_by(SYSTEM_NO, year) %>% 
+    summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
+              median_as = median(ar_ugl, na.rm = TRUE),
+              max_as = max(ar_ugl, na.rm = TRUE)) 
+  
+  # generate function
+  
+  select_delivered_spid <- function(j, ls, r) {
+    ind <- n.list.index[j, ]
+    tmp <- ls %>% right_join(ind)
+    treated <- tmp %>% filter(STATUS %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU'))
+    if (nrow(treated)>0) {
+      
+      delivered <- treated %>% group_by(SYSTEM_NO, year) %>% 
+        mutate(weights = if_else(ar_ugl==max(ar_ugl), r, (1-r)/(n()-1))) %>% 
+        summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
+                  median_as = median(ar_ugl, na.rm = TRUE), 
+                  max_as = max(ar_ugl, na.rm = TRUE))
+    } else {
+      delivered <- tmp %>% group_by(SYSTEM_NO, year) %>% 
+        mutate(weights = if_else(ar_ugl==max(ar_ugl), r, (1-r)/(n()-1))) %>% 
+        summarise(mean_as = weighted.mean(ar_ugl, na.rm = TRUE, w = weights),
+                  median_as = median(ar_ugl, na.rm = TRUE),
+                  max_as = max(ar_ugl, na.rm = TRUE)) 
+    }
+    return(delivered)
   }
-  return(delivered)
-}
-
-delivered_as <- map(1:21424, select_delivered_spid, ls = as.list[[1]]) %>% 
-  bind_rows()
-
-# delivered_as_all is binding rows from those that only have 1 observation and those that have more than 1 that was processed.
-
-delivered_as_all_ <- bind_rows(delivered_as, delivered_as1) %>% 
-  arrange(SYSTEM_NO, year) 
-
-write_rds(delivered_as_all, "../Data/1int/caswrb_as_delivered.rds")
+  
+  delivered_n <- map(1:nrow(n.list.index), select_delivered_spid, ls = n.list[[1]], r = r) %>% 
+    bind_rows()
+  
+  delivered_n_all <- bind_rows(delivered_n, delivered_n1) %>% 
+    arrange(SYSTEM_NO, year)
+  
+  delivered_n_all <- delivered_n_all %>% distinct()
+  
+  write_rds(delivered_n_all, paste0("../Data/1int/caswrb_as_", s,".rds"))})
 
 ################### CLEAN AND SAVE FOR NITRATES --------------------------------------
 
@@ -304,12 +313,8 @@ saveRDS(n_reg, "../Data/1int/caswrb_n_reg.rds")
 
 # 2. Create a dataset that is at the system no. year for delivered water to household or non-transient
 
-# Create the optimistic and not optimistic dataset.
-state = c('pessimistic', 'optimistic')
-ratio_best = c(.9, .1)
-
-map2(state, ratio_best, function(s, r) {
-  n_list <- n_reg %>% 
+# Split nitrate observations into only one and more then 1
+  n_list <- n %>% 
   # left_join(ind) %>% 
   filter(!(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
                          'WW', 'IT', 'IR', 'IU', 'IS', 'DS'))) %>% 
@@ -325,6 +330,7 @@ n.list <- split(n_list, f = n_list$only_one_obs)
 
 n.list.index <- n.list[[1]] %>% select(SYSTEM_NO, year) %>% distinct()
 
+# just take plain old mean of the spid years with only one observation
 delivered_n1 <- n.list[[2]] %>% 
   select(SYSTEM_NO, year, n_mgl) %>% 
   group_by(SYSTEM_NO, year) %>% 
@@ -333,28 +339,28 @@ delivered_n1 <- n.list[[2]] %>%
 
 # generate function
 
-select_delivered_spid <- function(j, ls, r) {
+select_delivered_spid <- function(j, ls) {
   ind <- n.list.index[j, ]
   tmp <- ls %>% right_join(ind)
   treated <- tmp %>% filter(STATUS %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU'))
   if (nrow(treated)>0) {
   
     delivered <- treated %>% group_by(SYSTEM_NO, year) %>% 
-      mutate(weights = if_else(n_mgl==max(n_mgl), r, (1-r)/(n()-1))) %>% 
+      # mutate(weights = if_else(n_mgl==max(n_mgl), r, (1-r)/(n()-1))) %>% 
       summarise(mean_n = mean(n_mgl, na.rm = TRUE),
-                median_n = median(n_mgl, na.rm = TRUE), 
-                max_n = max(n_mgl, na.rm = TRUE))
+                max_n = max(n_mgl, na.rm = TRUE), 
+                min_n = min(n_mgl, na.rm = TRUE))
   } else {
     delivered <- tmp %>% group_by(SYSTEM_NO, year) %>% 
-      mutate(weights = if_else(n_mgl==max(n_mgl), r, (1-r)/(n()-1))) %>% 
-      summarise(mean_n = weighted.mean(n_mgl, na.rm = TRUE, w = weights),
-                median_n = median(n_mgl, na.rm = TRUE),
-                max_n = max(n_mgl, na.rm = TRUE)) 
+      # mutate(weights = if_else(n_mgl==max(n_mgl), r, (1-r)/(n()-1))) %>% 
+      summarise(mean_n = mean(n_mgl, na.rm = TRUE),
+                max_n = max(n_mgl, na.rm = TRUE), 
+                min_n = min(n_mgl, na.rm = TRUE))
   }
   return(delivered)
 }
 
-delivered_n <- map(1:nrow(n.list.index), select_delivered_spid, ls = n.list[[1]], r = r) %>% 
+delivered_n <- map(1:nrow(n.list.index), select_delivered_spid, ls = n.list[[1]]) %>% 
   bind_rows()
 
 delivered_n_all <- bind_rows(delivered_n, delivered_n1) %>% 
@@ -362,11 +368,8 @@ delivered_n_all <- bind_rows(delivered_n, delivered_n1) %>%
 
 delivered_n_all <- delivered_n_all %>% distinct()
 
-write_rds(delivered_n_all, paste0("../Data/1int/caswrb_n_", s,".rds"))})
+write_rds(delivered_n_all, "../Data/1int/caswrb_n_delivered.rds")
 
-x<-readRDS(paste0("../Data/1int/caswrb_n_", 'optimistic',".rds"))
-
-y<-readRDS(paste0("../Data/1int/caswrb_n_", 'pessimistic',".rds"))
 ################### CLEAN AND SAVE FOR IRON ######################
 # filter only code 01045 for IRON
 chem74_99 <- read_csv(file.path(home, "ca_water_qual/chem_1974_1999.csv")) %>% filter(STORE_NUM == "01045")

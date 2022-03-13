@@ -294,3 +294,18 @@ save_plot("Plots/ES_raw_gw_ni_llat_91-21.png", p1, base_asp = 2.5, scale = 1.2)
 
 ej_n <- plot_es2(es_ni_llat, es_ni_hlat, ni_mod_llat, ni_mod_hlat, contaminant = 'n', ylm = c(3,5.6))
 save_plot("Plots/ES_n_ej.png", ej_n, base_asp = 2.5, scale = 1.2)
+
+
+# Do the above for delivered water ----------------------------------------
+
+ni_mod_hlat <- ni %>%
+  mutate(mean = Winsorize(n_mgl, probs = c(0,.99))) %>% 
+  filter(year >=1991, raw == 1, WATER_TYPE == "G") %>% 
+  mutate(
+    td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
+    %>% if_else((. == 44 | . == 80), NA_real_, .),
+    dy = yday(sampleDate),
+    year = factor(year)
+  ) %>% 
+  left_join(ej) %>% 
+  filter(b_majority_latino==0)

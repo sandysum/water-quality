@@ -107,14 +107,47 @@ ni_reg_balanced %>% group_by(raw, gw) %>%
 
 # Make figures for delivered N and As ----------------------------------------------
 
-home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
 pdsi <- readRDS(file.path(home,"/drought/pdsi_pws_year.rds"))
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 
-ni_reg <-read_rds(file.path(home, "1int/caswrb_n_delivered.rds")) %>% 
-  dplyr::select(1:4)
+ni_reg = c()
+
+for (j in 1:3) {
+  ni_reg[[j]] <- readRDS(str_subset(list.files(file.path(home, "1int"), full.names = TRUE), 
+                                    "caswrb_n_(de|op|pe)")[j]) %>% 
+    dplyr::select(1:4) %>% 
+    ungroup() %>% 
+    mutate(scenario = c('equal', 'optimistic', 'pessimistic')[j],
+           mean_n = Winsorize(mean_n, probs = c(0, 0.95))) %>% 
+    left_join(ind)
+}
+
+as_reg = c()
+
+for (j in 1:3) {
+  as_reg[[j]] <- readRDS(str_subset(list.files(file.path(home, "1int"), full.names = TRUE), 
+                                    "caswrb_as_(de|op|pe)")[j]) %>% 
+    dplyr::select(1:4) %>% 
+    ungroup() %>% 
+    mutate(scenario = c('equal', 'optimistic', 'pessimistic')[j],
+           mean_as = Winsorize(mean_as, probs = c(0, 0.95))) %>% 
+    left_join(ind)
+}
+
 # ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
 
 # Read in and join to social eq ind ---------------------------------------
 # Added this part to run some regression to join social eq indicator
 
-ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+plist <- map(ni_reg, plot_es_delivered, by = 'b_low_income', ylm=c(1, 4)) %>% map(add_drought)
+out <- plot_grid(plotlist = plist, nrow = 1, labels = c('Equal', 'Optimistic', 'Pessimistic'))
+
+save_plot('Plots/0delivered_scenario_income.png', out, base_height = 3.2, scale = 3)
+
+plist <- map(as_reg, plot_es_delivered, pollutant = 'mean_as', by = 'b_low_income',ylm=c(1, 8), ylab = 'Mean As conc. (ug/l)')
+
+out <- plot_grid(plotlist = plist, nrow = 1, labels = c('Equal', 'Optimistic', 'Pessimistic'))
+
+save_plot('Plots/0delivered_scenario_drought_as_income.png', out, base_height = 3.2, scale = 3)
+

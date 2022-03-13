@@ -25,14 +25,91 @@ plot.means <- function(var.name, df, by.var) {
 
 add_drought <- function(p) {p + 
   geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  geom_rect(aes(xmin=1999.5,xmax=2002.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
   geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
+  geom_rect(aes(xmin=2019.5,xmax=2020,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
   # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
   # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
   # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
   # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
 }
+
+plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino', years = 1994:2020,
+                              ylm = c(1.2,4), main = ' ',
+                              ylab = 'Mean N conc. (mg/l)\n') {
+  form = paste0(pollutant, "~ factor(year) | SYSTEM_NO | 0 | 0")
+  
+  es <- felm(as.formula(form), data = df %>% filter((!!rlang::sym(by))==1, year %in% years))
+  es2 <- felm(as.formula(form), data = df %>% filter((!!rlang::sym(by))==0, year %in% years))
+  
+  # browser()
+  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
+  x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
+    left_join(se) %>% 
+    rename(se = value)
+  
+  baseline_ni <- df %>% filter((!!rlang::sym(by))==1, year %in% years) %>%
+    mutate(year_n = as.integer(as.character(year))) %>%
+    filter(year_n == min(years))
+  
+  bs <- tibble(
+    year_n = min(baseline_ni$year_n),
+    avg = mean(baseline_ni[[pollutant]], na.rm = TRUE)
+  )
+  
+  se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
+  x2 <- as_tibble(es2$coefficients) %>% mutate(coef = rownames(es2$coefficients)) %>%
+    left_join(se2) %>% 
+    rename(se = value)
+  
+  baseline_ni2 <- df %>%
+    filter((!!rlang::sym(by))==0, year %in% years) %>%
+    mutate(year_n = as.integer(as.character(year))) %>%
+    filter(year_n == min(years))
+
+  bs2 <- tibble(
+    year_n = min(baseline_ni2$year_n),
+    avg = mean(baseline_ni2[[pollutant]], na.rm = TRUE)
+  )
+  
+  x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
+    mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
+           avg = !!rlang::sym(pollutant) + bs2$avg) %>% 
+    bind_rows(bs2) %>% 
+    arrange(year_n) %>% 
+    mutate(upr = 1.96*se+avg,
+           lwr = avg - 1.96*se,
+           group = 'All other')
+  
+  x <- x %>% filter(str_detect(coef, 'year')) %>%
+    mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
+           avg = !!rlang::sym(pollutant) + bs$avg) %>% 
+    bind_rows(bs) %>% 
+    arrange(year_n) %>% 
+    mutate(upr = 1.96*se+avg,
+           lwr = avg - 1.96*se,
+           group = 'Majority Latino') %>% 
+    bind_rows(x2)
+  
+  x %>% 
+    filter(year_n > min(years)) %>% 
+    ggplot(aes(year_n, avg)) +
+    geom_line(aes(color = group), size = 1) +
+    geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
+    theme_minimal_hgrid() +
+    ggtitle(label = main) +
+    lims(y = ylm) +
+    labs(x = '\nYear', y = ylab) +
+    scale_x_continuous(breaks = years) +
+    theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
+          plot.background = element_rect(fill = "white", color = NA)) +
+    scale_colour_manual(" ", values=c("darkgreen", "black"),
+                        breaks=c('Majority Latino', "All other"), 
+                        labels=c(by, "All other")) +
+    theme(legend.position = 'top')
+  
+}
+
 plot_es <- function(es, df, contaminant = "ar", main = "",
                     ylm = c(0,8)) {
   df %>% drop_na(SYSTEM_NO, contains("td"), contains("dy"), year, ZIP)

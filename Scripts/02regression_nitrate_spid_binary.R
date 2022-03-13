@@ -10,6 +10,7 @@ library(tidyverse)
 library(lfe)
 library(DescTools)
 library(future.apply)
+library(did)
 library(cowplot)
 source("Scripts/helper_functions_models.R")
 options(digits=3)
@@ -26,7 +27,7 @@ ni_reg <-read_rds(file.path(home, "1int/caswrb_n_delivered.rds"))
 # Added this part to run some regression to join social eq indicator
 
 ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
-  distinct()
+  distinct(SYSTEM_NO, .keep_all = TRUE)
 
 # 1. CLEAN DATA FOR: Regression at the monitor month year level ------------------------------
 
@@ -34,14 +35,15 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>%
 
 # this function subsets to only balanced panels that has the
 
-ni_reg_balanced <- subset_years_cws(2001, pollutant = ni_reg, 2020, 1)
+ni_reg_balanced <- subset_years(2000, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
+  select(gw, samplePointID, raw, year, SYSTEM_NO, contains('_n'), diff_year, mean_pdsi) %>% 
   group_by(samplePointID) %>% 
   mutate(
-    d = if_else(mean_pdsi <= -1.5, 1, 0), 
+    d = if_else(mean_pdsi <= -1, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
     dlag1 = lag(d),
@@ -61,24 +63,6 @@ ni_drought <- ni_reg_balanced %>%
   mutate(n_spid = 1 / (unique(samplePointID) %>% length())) %>%
   ungroup() %>% 
   dplyr::left_join(ind, by = "SYSTEM_NO")
-
-# Visualize annual trends within PWS --------------------------------------
-# set.seed(1297)
-# q <- sample(unique(ni_drought$SYSTEM_NO), 100)
-# quartz()
-# p <- ni_drought %>% 
-#   filter(SYSTEM_NO %in% q) %>% 
-#   ggplot(aes(x = year, y = mean_n, color = raw, group = samplePointID)) +
-#   geom_line() +
-#   geom_smooth(aes(group = SYSTEM_NO), method = 'lm') +
-#   theme_light() +
-#   scale_x_continuous(breaks = seq(2000, 2022, 2)) +
-#   # geom_hline(yintercept = 10, color = 'red') +
-#   theme(axis.text.x = element_text(angle = 45)) +
-#   facet_wrap(vars(SYSTEM_NO), scales = "free")
-# 
-# save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/pws_linear_n.png", p, base_asp = 1.2, scale = 5)
-
 
 # Drought on N, status, lags, EJ ------------------------------------------
 
