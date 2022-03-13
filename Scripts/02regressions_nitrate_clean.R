@@ -35,7 +35,7 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>%
 
 # this function subsets to only balanced panels that has the
 
-ni_reg_balanced <- subset_years(2000, pollutant = ni_reg, 2020, 1)
+  ni_reg_balanced <- subset_years(2001, pollutant = ni_reg, 2020, 1)
 
 ni_drought <- ni_reg_balanced %>% 
   ungroup() %>% 
@@ -43,7 +43,7 @@ ni_drought <- ni_reg_balanced %>%
   select(gw, samplePointID, raw, year, SYSTEM_NO, contains('_n'), diff_year, mean_pdsi) %>% 
   group_by(samplePointID) %>% 
   mutate(
-    d = mean_pdsi, 
+    # d = mean_pdsi, 
     d = if_else(mean_pdsi <= -1, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
@@ -79,30 +79,7 @@ summary(mod_ni_3_perclat_h)
 
 mod_ni_lag3_perclat_h <-
   felm(mean_n ~ d + dlag1 + dlag2
-       + dlag3
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw
-       + SYSTEM_NO:year
-       | samplePointID | 0 | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
-
-summary(mod_ni_lag3_perclat_h)
-
-# only 8 SPID with treated GW in this category... do not add that?
-
-df_l_perclat <- ni_drought %>% filter(b_majority_latino==0 & !is.na(b_majority_latino))
-
-mod_ni_3_perclat_l <-
-  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year |  samplePointID | 0 | SYSTEM_NO, data = df_l_perclat, weights = df_l_perclat$n_spid)
-
-mod_ni_lag3_perclat_l <-
-  felm(mean_n ~ d + dlag1 + dlag2
-       + dlag3
+       # + dlag3
        + d:gw
        + dlag1:gw
        + dlag2:gw
@@ -112,25 +89,16 @@ mod_ni_lag3_perclat_l <-
        + dlag2:raw
        # + dlag3:raw
        + SYSTEM_NO:year
-       | samplePointID | 0 | SYSTEM_NO, data = df_l_perclat, weights = df_l_perclat$n_spid)
+       | samplePointID | 0 | SYSTEM_NO, data = df_h_perclat, weights = df_h_perclat$n_spid)
 
-summary(mod_ni_lag3_perclat_l)
+summary(mod_ni_lag3_perclat_h)
 
-# df_int_perclat_h <- sum_marginal(mod_ni_4_perclat_h, nlags = 0, int_terms = c('gw0', ':raw0'), contaminant = 'n')
-# df_int_perclat_l <- sum_marginal(mod_ni_4_perclat_l, nlags = 0, int_terms = c('gw0', ':raw0'), contaminant = 'n')
-# 
-# plot_coeff_lags(df_int_cv[1:4,], contaminant = 'n', ylm =c(-0.1, 0.25))
+df_l_income <- ni_drought %>% filter(b_low_income==1 & !is.na(b_low_income))
 
-# for household income
+mod_ni_3_income_l <-
+  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year |  samplePointID | 0 | SYSTEM_NO, data = df_l_income, weights = df_l_income$n_spid)
 
-df_h_income <- ni_drought %>% filter(b_low_income==0 & !is.na(b_low_income))
-
-mod_ni_3_income_h <-
-  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO, data = df_h_income, weights = df_h_income$n_spid)
-
-summary(mod_ni_3_income_h)
-
-mod_ni_lag3_income_h <-
+mod_ni_lag3_income_l <-
   felm(mean_n ~ d + dlag1 + dlag2
        # + dlag3
        + d:gw
@@ -142,35 +110,12 @@ mod_ni_lag3_income_h <-
        + dlag2:raw
        # + dlag3:raw
        + year:SYSTEM_NO
-       | samplePointID | 0 | SYSTEM_NO, data = df_h_income, weights = df_h_income$n_spid)
-
-summary(mod_ni_lag3_income_h)
-
-# only 8 SPID with treated GW in this category... do not add that?
-
-df_l_income <- ni_drought %>% filter(b_low_income==1 & !is.na(b_low_income))
-
-mod_ni_3_income_l <-
-  felm(mean_n ~ d + d:gw + d:raw + SYSTEM_NO:year |  samplePointID | 0 | SYSTEM_NO, data = df_l_income, weights = df_l_income$n_spid)
-
-mod_ni_lag3_income_l <-
-  felm(mean_n ~ d + dlag1 + dlag2
-       + dlag3
-       + d:gw
-       + dlag1:gw
-       + dlag2:gw
-       + dlag3:gw
-       + d:raw
-       + dlag1:raw
-       + dlag2:raw
-       + dlag3:raw
-       + year:SYSTEM_NO
        | samplePointID | 0 | SYSTEM_NO, data = df_l_income, weights = df_l_income$n_spid)
 
 summary(mod_ni_lag3_income_l)
 
-coeffs <- map(list(mod, mod_ni_lag3_perclat_h, 
-                mod_ni_lag3_income_l), sum_lags, pollutant = 'n', nlags = 3,
+coeffs <- map(list(mod_ni_lag3, mod_ni_lag3_perclat_h, 
+                mod_ni_lag3_income_l), sum_lags, pollutant = 'n', nlags = 2,
               int_terms=c('gw0', 'raw0')) %>% 
   bind_rows(.id = 'model') %>% 
   relabel_predictors(
@@ -185,8 +130,8 @@ dwplot(coeffs,
          colour = "grey60",
          linetype = 2
        )) + theme_bw() +
-  scale_colour_discrete(
-    
+  scale_color_brewer(
+    palette = 'Dark2',
     name = "Model",
     breaks = c(1,2,3),
     labels = c("All California", "Majority latino", "Low income")
@@ -304,11 +249,11 @@ mod_ni_lag2 <-
        + d:gw
        + dlag1:gw
        + dlag2:gw
-       # + dlag3:gw
+       + dlag3:gw
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       # + dlag3:raw 
+       + dlag3:raw
        + year
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 
@@ -316,7 +261,7 @@ summary(mod_ni_lag2)
 
 mod_ni_lag3 <- 
   felm(mean_n ~ d + dlag1 + dlag2 
-       # + dlag3 
+       # + dlag3
        + d:gw
        + dlag1:gw
        + dlag2:gw
@@ -324,7 +269,7 @@ mod_ni_lag3 <-
        + d:raw
        + dlag1:raw
        + dlag2:raw
-       # + dlag3:raw 
+       # + dlag3:raw
        + year:SYSTEM_NO
        | samplePointID | 0 | SYSTEM_NO, data = ni_drought, weights = ni_drought$n_spid)
 

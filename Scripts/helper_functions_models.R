@@ -372,9 +372,10 @@ subset_years_cws <- function(year_start, pollutant, year_end, by = 1) {
 
 # this function returns the sum of lagged coefficients
 
-sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), contaminant = "ar") {
+sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), pollutant = "ar") {
  x <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients))
  vcov <- mod$clustervcv
+ vcov <- mod$vcv
  # x %>% filter(str_detect(beta, "d$|dlag\\d$"))
  
  # calculating point estimate for cumulative effect for gw-raw
@@ -403,9 +404,9 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), c
    se_d[length(se_d)+1] = sqrt(sum(vcov_tmp))
  }
   n <- mod$N
-  out <- tibble(est = coeff, se = se_d, coeff = c("d", int_terms)) %>% 
-    mutate(t_val = est/se,
-           pval = 2*pt(-abs(t_val),df=n-1))
+  out <- tibble(term = c("d", int_terms), estimate = coeff, std.error = se_d) %>% 
+    mutate(statistic = estimate/std.error,
+           p.value = 2*pt(-abs(statistic),df=n-1))
   return(out)
 }
 
@@ -433,7 +434,7 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
       ind <- row.names(vcov) %in% tmp$beta %>% which()
       vcov_tmp <- vcov[ind, ind]
         tibble(
-          !!paste0('mean_', contaminant) := sum(tmp[,1]),
+          !!paste0('mean_', pollutant) := sum(tmp[,1]),
           se = sqrt(sum(vcov_tmp)),
           beta = paste0('dlag', x),
           int_terms = int_terms[j]
@@ -443,7 +444,7 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
   } 
   n <- mod$N
   out <- bind_rows(coeff, out) %>%
-    mutate(t_val = UQ(rlang::sym(paste0('mean_', contaminant))) / se,
+    mutate(t_val = UQ(rlang::sym(paste0('mean_', pollutant))) / se,
            pval = 2 * pt(-abs(t_val), df = n - 1))
   return(out)
   }

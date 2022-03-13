@@ -35,12 +35,19 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 # this function subsets to only balanced panels that has the
 
 ni_reg_balanced <- subset_years_cws(2005, pollutant = ni_reg, 2020, 1)
+p <- ni_reg_balanced %>% 
+  left_join(pdsi, c("year", "SYSTEM_NO"))
+
+# use this to normalize pdsi
+mean.d <- mean(p$mean_pdsi, na.rm = TRUE)
+sd.d <- sd(p$mean_pdsi, na.rm = TRUE)
+rm(p)
 
 ni_drought <- ni_reg_balanced %>% 
   left_join(pdsi, c("year", "SYSTEM_NO")) %>% 
   group_by(SYSTEM_NO) %>% 
   mutate(
-    d = mean_pdsi*-1,
+    d = ((mean_pdsi-mean.d)*-1)/sd.d,
     # d = if_else(mean_pdsi <= -3, 1, 0), 
     dlead = lead(d),
     dlead2 = lead(dlead),
