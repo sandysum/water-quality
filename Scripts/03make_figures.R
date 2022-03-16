@@ -104,46 +104,96 @@ ni_reg_balanced %>% group_by(raw, gw) %>%
             n = n(),
             sd_n = sd(mean_n, na.rm = TRUE))
 
+# Make figures for raw GW SW and TW
+
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
+
+ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
+  distinct(SYSTEM_NO, .keep_all = TRUE)
+
+ni.d <- readRDS("../Data/1int/caswrb_n_reg.rds") %>% 
+  left_join(ind) 
+
+ni.d.means <- ni.d %>% 
+  mutate(status = case_when(
+    gw==1&raw==1 ~ 'Raw groundwater',
+    gw==0&raw==1 ~ 'Raw surface water',
+    raw == 0 ~ 'Treated water'
+  )) %>% 
+  group_by(b_majority_latino, year, status) %>% 
+  summarise(mean_n = mean(mean_n, na.rm = TRUE),
+            se = sd(mean_n, na.rm = TRUE)) %>% 
+  drop_na(b_majority_latino, year, status, mean_n) %>% 
+  filter(year>1995, year<2022) %>% 
+  ggplot() +
+  geom_line(aes(x=year, y=mean_n, color = factor(b_majority_latino)), size = 1) +
+  facet_grid(cols = vars(status)) +
+  theme(axis.text.x = element_text(size = 8, angle = 45, hjust = .9)) + 
+  scale_colour_manual(" ", values=c("darkturquoise", "black"),
+                      breaks=c('1', '0'), 
+                      labels=c('Majority Latino', "All other")) 
+
+pl <- ni.d.means +
+  labs(x = '\nYear', y = 'Mean N conc, mg/l') +
+  theme_bw()
+
+pl<-add_drought(pl)
+
+save_plot("Plots/0source_trends_plain.png", add_drought(pl), base_asp = 2.8, scale = 1)
 
 # Make figures for delivered N and As ----------------------------------------------
 
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
-pdsi <- readRDS(file.path(home,"/drought/pdsi_pws_year.rds"))
-ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 
-ni_reg = c()
+ind <- readRDS(file.path(home, "1int/pws_ind.rds")) %>% 
+  distinct(SYSTEM_NO, .keep_all = TRUE)
 
-for (j in 1:3) {
-  ni_reg[[j]] <- readRDS(str_subset(list.files(file.path(home, "1int"), full.names = TRUE), 
-                                    "caswrb_n_(de|op|pe)")[j]) %>% 
-    dplyr::select(1:4) %>% 
-    ungroup() %>% 
-    mutate(scenario = c('equal', 'optimistic', 'pessimistic')[j],
-           mean_n = Winsorize(mean_n, probs = c(0, 0.95))) %>% 
-    left_join(ind)
-}
+ni.d <- readRDS("../Data/1int/caswrb_n_delivered.rds") %>% 
+  left_join(ind) %>% 
+  mutate(mean_n=n)
 
-as_reg = c()
+ni.optimistic <- mutate(ni.d, mean_n = if_else(b_majority_latino==1, min_n, max_n))
+ni.pessimistic <- mutate(ni.d, mean_n = if_else(b_majority_latino==1, max_n, min_n))
 
-for (j in 1:3) {
-  as_reg[[j]] <- readRDS(str_subset(list.files(file.path(home, "1int"), full.names = TRUE), 
-                                    "caswrb_as_(de|op|pe)")[j]) %>% 
-    dplyr::select(1:4) %>% 
-    ungroup() %>% 
-    mutate(scenario = c('equal', 'optimistic', 'pessimistic')[j],
-           mean_as = Winsorize(mean_as, probs = c(0, 0.95))) %>% 
-    left_join(ind)
-}
+ni <- bind_rows('Equal' = ni.d, 'Optimistic' = ni.optimistic, 'Pessimistic' = ni.pessimistic, .id = 'Scenario')
+ni.d.means <- ni %>% 
+  group_by(b_majority_latino, year, Scenario) %>% 
+  summarise(`Mean N conc.` = mean(mean_n, na.rm = TRUE),
+            se = sd(mean_n, na.rm = TRUE)) %>% 
+  drop_na() %>% 
+  filter(year>1995, year<2022) %>% 
+  ggplot() +
+  geom_line(aes(x=year, y=`Mean N conc.` , color = factor(b_majority_latino)), size = 1) +
+  # geom_ribbon(aes(x = year, ymin = meanN-se, ymax = meanN + se, group = factor(b_majority_latino)), 
+  #                 fill = 'grey70', alpha=.5) +
+  facet_grid(cols = vars(Scenario)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 8, angle = 45, hjust = .9)) + 
+  scale_colour_manual(" ", values=c("darkturquoise", "black"),
+                      breaks=c('1', '0'), 
+                      labels=c('Majority Latino', "All other")) 
 
-# ni_reg <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+add_drought(ni.d.means)
+
+save_plot('Plots/0ni_scenarios_ml.png', ni.d.means, base_height = 3.4, scale = 1.2)
+save_plot('Plots/0nid_scenarios_ml.png', add_drought(ni.d.means), base_height = 3.4, scale = 1.2)
+
+plist <- map(list(ni.d, ni.optimistic, ni.pessimistic),
+             plot_es_delivered, by = 'b_majority_latino', ylm=c(0, 5), 
+             years = 1998:2020) %>% map(add_drought)
+
+out <- plot_grid(plotlist = plist, nrow = 1, labels = c('Equal', 'Optimistic', 'Pessimistic'))
 
 # Read in and join to social eq ind ---------------------------------------
 # Added this part to run some regression to join social eq indicator
 
 plist <- map(ni_reg, plot_es_delivered, by = 'b_low_income', ylm=c(1, 4)) %>% map(add_drought)
+
 out <- plot_grid(plotlist = plist, nrow = 1, labels = c('Equal', 'Optimistic', 'Pessimistic'))
 
 save_plot('Plots/0delivered_scenario_income.png', out, base_height = 3.2, scale = 3)
+
+as.d <- readRDS("../Data/1int/caswrb_as_delivered.rds") %>% left_join(ind)
 
 plist <- map(as_reg, plot_es_delivered, pollutant = 'mean_as', by = 'b_low_income',ylm=c(1, 8), ylab = 'Mean As conc. (ug/l)')
 

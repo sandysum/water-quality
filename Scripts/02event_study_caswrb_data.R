@@ -20,7 +20,7 @@ home <- "/Users/sandysum/Google Drive/My Drive/0Projects/1Water/2Quality/Data/"
 # read arsenic and nitrate data from the CA SWRB portal 
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds")) 
 
-ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds")) 
+ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2022.rds")) 
 
 # Generate event study coefficients: Arsenic ------------------------------
 
@@ -134,7 +134,7 @@ ni_mod <- ni %>%
          year >= 1991) %>%
   mutate(
     td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
-    %>% if_else((. == 44 | . == 80), NA_real_, .),
+    %>% if_else(!(. %in% 1:24), NA_real_, .),
     dy = yday(sampleDate),
     year = factor(year),
     n() == 1 # tells me if this is a duplicate
@@ -297,6 +297,10 @@ save_plot("Plots/ES_n_ej.png", ej_n, base_asp = 2.5, scale = 1.2)
 
 
 # Do the above for delivered water ----------------------------------------
+# this function subsets to only balanced panels that has the
+ni.d <- readRDS("../Data/1int/caswrb_n_delivered.rds")
+
+ni.balanced <- subset_years_cws(2005, pollutant = ni.d, 2020, 1)
 
 ni_mod_hlat <- ni %>%
   mutate(mean = Winsorize(n_mgl, probs = c(0,.99))) %>% 

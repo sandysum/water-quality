@@ -27,16 +27,17 @@ add_drought <- function(p) {p +
   geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
   geom_rect(aes(xmin=1999.5,xmax=2002.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
   geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  geom_rect(aes(xmin=2019.5,xmax=2020,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
   # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
   # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
   # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
   # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
 }
 
-plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino', years = 1994:2020,
+plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino', years = 2005:2020,
                               ylm = c(1.2,4), main = ' ',
                               ylab = 'Mean N conc. (mg/l)\n') {
+  
   form = paste0(pollutant, "~ factor(year) | SYSTEM_NO | 0 | 0")
   
   es <- felm(as.formula(form), data = df %>% filter((!!rlang::sym(by))==1, year %in% years))
@@ -48,28 +49,19 @@ plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino'
     left_join(se) %>% 
     rename(se = value)
   
-  baseline_ni <- df %>% filter((!!rlang::sym(by))==1, year %in% years) %>%
-    mutate(year_n = as.integer(as.character(year))) %>%
-    filter(year_n == min(years))
-  
   bs <- tibble(
-    year_n = min(baseline_ni$year_n),
-    avg = mean(baseline_ni[[pollutant]], na.rm = TRUE)
+    year_n = min(years),
+    avg = mean(getfe(es)[['effect']])
   )
   
   se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
   x2 <- as_tibble(es2$coefficients) %>% mutate(coef = rownames(es2$coefficients)) %>%
     left_join(se2) %>% 
     rename(se = value)
-  
-  baseline_ni2 <- df %>%
-    filter((!!rlang::sym(by))==0, year %in% years) %>%
-    mutate(year_n = as.integer(as.character(year))) %>%
-    filter(year_n == min(years))
 
   bs2 <- tibble(
-    year_n = min(baseline_ni2$year_n),
-    avg = mean(baseline_ni2[[pollutant]], na.rm = TRUE)
+    year_n = min(years),
+    avg = mean(getfe(es2)[['effect']])
   )
   
   x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
@@ -98,7 +90,7 @@ plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino'
     geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
     theme_minimal_hgrid() +
     ggtitle(label = main) +
-    lims(y = ylm) +
+    lims(y = ylm, x = c(min(years), max(years))) +
     labs(x = '\nYear', y = ylab) +
     scale_x_continuous(breaks = years) +
     theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
@@ -113,11 +105,12 @@ plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino'
 plot_es <- function(es, df, contaminant = "ar", main = "",
                     ylm = c(0,8)) {
   df %>% drop_na(SYSTEM_NO, contains("td"), contains("dy"), year, ZIP)
+  years = df$year %>% unique() %>% as.character() %>% as.numeric()
   se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
   x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
     left_join(se) %>% 
     rename(se = value)
-  
+  # browser()
   if (contaminant == 'ar') {
     baseline_ar <- df %>%
       mutate(year_n = as.integer(as.character(year))) %>%
@@ -136,31 +129,29 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
       mutate(upr = 1.96*se+avg_ar,
              lwr = avg_ar - 1.96*se)
     # quartz()
-    x %>% ggplot(aes(year_n, avg_ar)) +
-      geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      geom_point() +
-      geom_errorbar(aes(ymin = lwr, ymax = upr, width = .1)) +
-      # geom_smooth() +
+    x %>% 
+      filter(year_n > min(years)) %>% 
+      ggplot(aes(year_n, avg_ar)) +
+      geom_line(size = 1) +
+      geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
       theme_minimal_hgrid() +
       ggtitle(label = main) +
-      scale_x_continuous(breaks = 1990:202) +
+      lims(y = ylm, x = c(min(years), max(years))) +
+      labs(x = '\nYear') +
+      scale_x_continuous(breaks = years) +
       theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
             plot.background = element_rect(fill = "white", color = NA)) +
-      lims(y = ylm)
+      # scale_colour_manual(" ", values=c("darkgreen", "black"),
+      #                     breaks=c('Majority Latino', "All other"), 
+      #                     labels=c(by, "All other")) +
+      theme(legend.position = 'top')
   } else if (contaminant == 'n') {
       baseline_ni <- df %>%
         mutate(year_n = as.integer(as.character(year))) %>%
         filter(year_n == min(year_n))
       
       bs <- tibble(
-        year_n = min(baseline_ni$year_n),
+        year_n = min(years),
         avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
       )
       
@@ -172,30 +163,28 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
         mutate(upr = 1.96*se+avg_n,
                lwr = avg_n - 1.96*se)
       # quartz()
-      x %>% ggplot(aes(year_n, avg_n)) +
-        geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-        # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-        # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-        # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-        geom_point() +
-        geom_errorbar(aes(ymin = lwr, ymax = upr, width = .1)) +
-        # geom_smooth() +
+      x %>% 
+        filter(year_n > min(years)) %>% 
+        ggplot(aes(year_n, avg_n)) +
+        geom_line(size = 1) +
+        geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = .4, fill = 'lightgrey') +
         theme_minimal_hgrid() +
         ggtitle(label = main) +
-        # lims(x=c(1984,2022)) +
-        scale_x_continuous(breaks = 1984:2022) +
+        lims(y = ylm, x = c(min(years), max(years))) +
+        labs(x = '\nYear') +
+        scale_x_continuous(breaks = years) +
         theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
               plot.background = element_rect(fill = "white", color = NA)) +
-        lims(y = ylm)
+        # scale_colour_manual(" ", values=c("darkgreen", "black"),
+        #                     breaks=c('Majority Latino', "All other"), 
+        #                     labels=c(by, "All other")) +
+        theme(legend.position = 'top')
   }
 }
 
 plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
                     ylm = c(0,8)) {
+  years = df$year %>% unique()
   # browser()
   se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
   x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
@@ -249,26 +238,22 @@ plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
              lwr = avg_n - 1.96*se,
              group = 'non-majority Latino') %>% 
       bind_rows(x2)
-    x %>% ggplot(aes(year_n, avg_n)) +
-      geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-      # geom_rect(aes(xmin=1999.5,xmax=2003.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-      geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-      # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
-      # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
-      geom_point(aes(color = group)) +
-      geom_errorbar(aes(ymin = lwr, ymax = upr, width = .06, color = group)) +
-      # geom_smooth() +
+    
+    x %>% 
+      filter(year_n > min(years)) %>% 
+      ggplot(aes(year_n, avg)) +
+      geom_line(aes(color = group), size = 1) +
+      geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
       theme_minimal_hgrid() +
       ggtitle(label = main) +
-      # lims(x=c(1984,2022)) +
-      scale_x_continuous(breaks = 1984:2022) +
+      lims(y = ylm, x = c(min(years), max(years))) +
+      labs(x = '\nYear', y = ylab) +
+      scale_x_continuous(breaks = years) +
       theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
             plot.background = element_rect(fill = "white", color = NA)) +
-      lims(y = ylm) +
-      scale_color_brewer(palette = 'Set2') +
+      scale_colour_manual(" ", values=c("darkgreen", "black"),
+                          breaks=c('Majority Latino', "All other"), 
+                          labels=c(by, "All other")) +
       theme(legend.position = 'top')
 }
 
@@ -372,7 +357,7 @@ subset_years_cws <- function(year_start, pollutant, year_end, by = 1) {
 
 # this function returns the sum of lagged coefficients
 
-sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), pollutant = "ar") {
+sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), pollutant = "ar", scale_by = NULL) {
  x <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients))
  vcov <- mod$clustervcv
  vcov <- mod$vcv
@@ -403,10 +388,103 @@ sum_lags <- function(mod, nlags = 3, int_terms = c("gw0", 'raw0', "gw0|raw0"), p
 
    se_d[length(se_d)+1] = sqrt(sum(vcov_tmp))
  }
+ 
+ if (is.null(scale_by)) {
   n <- mod$N
   out <- tibble(term = c("d", int_terms), estimate = coeff, std.error = se_d) %>% 
     mutate(statistic = estimate/std.error,
            p.value = 2*pt(-abs(statistic),df=n-1))
+} else {
+  n <- mod$N
+  out <- tibble(term = c("d", int_terms), estimate = coeff*scale_by, 
+                std.error = se_d*scale_by) %>% 
+    mutate(statistic = estimate/std.error,
+           p.value = 2*pt(-abs(statistic),df=n-1))
+}
+  return(out)
+}
+
+residualize <- function(df, vars_to_resid, fes = 'factor(year)') {
+  df <- df %>% drop_na(all_of(vars_to_resid))
+  for (v in vars_to_resid) {
+    form = as.formula(paste0(v, " ~ ", fes))
+    mod <- lm(form, data = df)
+    df[v] <- as.double(mod$residuals)
+  }
+  return(df)
+}
+
+prep_reg <- function(df) {
+  
+  df <- df %>% arrange(samplePointID, year)
+  
+  mean.d <- mean(df$mean_pdsi, na.rm = TRUE)
+  sd.d <- sd(df$mean_pdsi, na.rm = TRUE)
+  
+  x <- df %>% 
+    group_by(samplePointID) %>% 
+    mutate(
+      d = ((mean_pdsi-mean.d)*-1)/sd.d,
+      # d = if_else(mean_pdsi <= -1, 1, 0), 
+      dlead = lead(d),
+      dlead2 = lead(dlead),
+      dlag1 = lag(d),
+      dlag2 = lag(dlag1),
+      dlag3 = lag(dlag2),
+      gXraw0 = factor(gw*(raw==0), levels = c('0', '1')),
+      gXraw = factor(gw*raw, levels = c('0', '1'))) %>% 
+    mutate(
+      gw = factor(gw, levels = c("1", "0")),
+      raw = factor(raw),
+      SYSTEM_NO = factor(SYSTEM_NO),
+      RegulatingAgency = factor(RegulatingAgency)
+    ) %>%
+    group_by(SYSTEM_NO, year) %>%
+    mutate(n_spid = 1 / (unique(samplePointID) %>% length()))
+  return(x)
+}
+
+prep_reg_cws <- function(df) {
+  df <- df %>% arrange(SYSTEM_NO, year)
+  mean.d <- mean(df$mean_pdsi, na.rm = TRUE)
+  sd.d <- sd(df$mean_pdsi, na.rm = TRUE)
+  ni_drought <- df %>% 
+    group_by(SYSTEM_NO) %>% 
+    mutate(
+      d = ((mean_pdsi-mean.d)*-1)/sd.d,
+      # d = if_else(mean_pdsi <= -1, 1, 0), 
+      dlead = lead(d),
+      dlead2 = lead(dlead),
+      dlag1 = lag(d),
+      dlag2 = lag(dlag1),
+      dlag3 = lag(dlag2)) %>% 
+    mutate(
+      SYSTEM_NO = factor(SYSTEM_NO),
+      RegulatingAgency = factor(RegulatingAgency)
+    ) 
+  return(ni_drought)
+}
+
+sum_coeffs <- function(mod, int_terms = c('d:b_majority_latino', 
+                                          "d:log_hh_income"), 
+                       pollutant = "ar", scale_by = c(1, -2)) {
+ 
+  # vcov <- mod$clustervcv
+  vcov <- mod$vcv
+  vcov <- vcov[int_terms, int_terms]
+  for (i in 1:length(scale_by)) {
+    vcov[i, i] <- vcov[i, i]*(scale_by[i])^2
+  }
+  n <- mod$N
+  x <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients)) %>% 
+    filter(beta %in% int_terms) %>% 
+    bind_cols(tibble(scale = scale_by)) %>% 
+    mutate(estimate = mean_n*scale_by)
+  
+    out <- tibble(estimate = sum(x$estimate), 
+                  std.error = sqrt(sum(vcov))) %>% 
+      mutate(statistic = estimate/std.error,
+             p.value = 2*pt(-abs(statistic),df=n-1))
   return(out)
 }
 
@@ -546,7 +624,8 @@ smallerMod = function(mod) {
 }
 
 
-reg_delivered <- function(df, nlags, xvar, yvar, fe = "0", clust = "0", plot = TRUE) {
+reg_delivered <- function(df, nlags, xvar, yvar, fe = "0", clust = "0", plot = TRUE,
+                          save.reg = '../Data/1int/mod.rds') {
   
   # created list with list of x var in it.
   # for now fe is fixed
@@ -566,6 +645,9 @@ reg_delivered <- function(df, nlags, xvar, yvar, fe = "0", clust = "0", plot = T
       lb = 'N (mg/l)'
     } else {
       lb = 'As (ug/l)'
+    }
+    if (!is.null(save.reg)) {
+      saveRDS(mod, save.reg)
     }
     stargazer(mod, omit = ':year|Constant', 
               title = 'Impacts of a unit increase in drought measure',

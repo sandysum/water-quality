@@ -97,7 +97,7 @@ names(pdsi_ca_month) <- names(pdsi_ca_month) %>% str_extract("\\d+") %>% str_pad
 
 saveRDS(pdsi_ca_month, "../Data/drought/pdsi_grid_monthyear.rds")
 
-plot(pdsi_ca_month, 500)
+plot(pdsi_ca_month, )
 
 # Spatial aggregation -1)PWS shapefile 2)PWS with no shapefile ------------
 
@@ -125,6 +125,9 @@ zip_shp <- zip_shp %>% filter(ZCTA5CE10%in%no_shp$zip) %>%
   left_join(no_shp, by = (c('ZCTA5CE10'='zip')))
 
 # extract for these shapes
+zip_shp <- read_sf(file.path(home, "/shp_PWS_SABL_Public_080221/PWS_by_zip.shp")) %>%
+  # filter(SHAPE_LEN > 0) %>%
+  mutate(SYSTEM_NO = str_extract(PWSID, "\\d+"))
 
 r.vals <- raster::extract(pdsi_ca_month, zip_shp)
 
@@ -158,7 +161,7 @@ r.vals <- raster::extract(pdsi_ca_month, pwss)
 p <- r.vals[[15]]
 
 pws_pdsi_my <- map2(r.vals, pwss$SABL_PWSID, function(p, id) {
-p %>% as.tibble() %>% dplyr::gather(my, pdsi) %>% 
+p %>% as.tibble() %>% tidyr::gather(my, pdsi) %>% 
   group_by(my) %>% 
   summarise(mean_pdsi = mean(pdsi, na.rm = TRUE)) %>% 
   mutate(SABL_PWSID = id)
@@ -183,9 +186,10 @@ saveRDS(pdsi_pws_year, file = "../Data/drought/pdsi_pws_year.rds")
 # randomly plot some shapefiles from the new zip code level dataset to check 
 
 set.seed(8067986)
-q <- sample(unique(pdsi$SABL_PWSID), 10)
+q <- sample(unique(pdsi_pws_year$SABL_PWSID), 400)
 quartz()
-pdsi %>% 
+
+pdsi_pws_year %>% 
   # mutate(month = as.numeric(str_extract(my, "\\d{2}")),
   #        year = as.numeric(str_extract(my, "\\d{4}$"))) %>%
   # group_by(SABL_PWSID, year) %>%
@@ -193,12 +197,13 @@ pdsi %>%
   # mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")) %>%
   filter(SABL_PWSID %in% q) %>%
   ggplot(aes(x = year, y = mean_pdsi, group = SABL_PWSID)) +
-  geom_line() +
+  geom_line(alpha = .4, color = 'grey70') +
   theme_minimal_hgrid() +
-  # geom_smooth(method = 'lm') +
+  # stat_summary(fun = mean,
+  #              geom = "point", color = 'darkblue', aes(group = year)) +
   scale_x_continuous(breaks = seq(1974, 2022, 2)) +
   # geom_hline(yintercept = 10, color = 'red') +
-  theme(axis.text.x = element_text(angle = 45)) +
+  theme(axis.text.x = element_text(angle = 45, size = 10)) +
   # ylim(c(-8, 8)) +
   scale_y_continuous(breaks = seq(-8, 8, 1)) +
   geom_hline(yintercept = -2)
