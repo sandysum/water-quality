@@ -25,9 +25,31 @@ ni <-read_rds(file.path(home, "1int/caswrb_n_reg.rds")) %>% left_join(ind) %>%
 ni_drought <- subset_years(2006, pollutant = ni , 2021, 1) %>% 
   prep_reg() %>% 
   mutate(b_majority_latino = factor(b_majority_latino),
-         b_low_income = factor(b_low_income))
+         b_low_income = factor(b_low_income),
+         raXy = factor(paste0(RegulatingAgency, year)),
+         cXy = factor(paste0(CITY, year)),
+         ctXy = factor(paste0(countyName, year))) %>% 
+  filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
+                       'SU'))
 
-ni_split <- ni_drought %>% split(ni_drought$gw)
+ni_split <- ni_drought %>% 
+  split(ni_drought$gw) %>% 
+  map(~(filter(., raw==1)))
+
+table <- ni_drought %>% group_by(SYSTEM_NO, TotalPopulation, b_majority_latino, b_low_income, gw) %>%
+  summarise(n = n() / 16) %>%
+  drop_na() %>%
+  group_by(b_majority_latino) %>%
+  summarize(
+    total_pop_served = sum(TotalPopulation[n==1]),
+    total_pop_served_gw = sum(TotalPopulation[(n==1&gw==1)]),
+    one_source = sum(n == 1),
+    one_source_gw = sum(n==1 & gw==1),
+    n = n()
+  ) %>%
+  mutate(frac_one_source = one_source / n)
+
+kbl(table, 'latex', booktabs = TRUE)
 
 # need to find a way to visualize this 
 sys <- ni_drought %>% distinct(b_majority_latino, raw, gw, SYSTEM_NO, samplePointID)
@@ -84,6 +106,81 @@ gwml <- source_reg(ni_split[[1]], by = '+d:b_majority_latino')
 # Main regressions GWxLI group --------------------------------------------
 
 gwli <- source_reg(ni_split[[1]], by = "+d:b_low_income")
+
+# Final regressions 2022 spring:
+  
+gw0 <- felm(as.formula(paste0('mean_n ~ d ', ' ', '| factor(year) | 0 | 0')), 
+                   data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+summary(gw0)
+
+# should I include b_majority_latino in the controls?
+gw1 <- felm(as.formula(paste0('mean_n ~ d ', ' +d:b_majority_latino + b_majority_latino', '| factor(year) | 0 | 0')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+summary(gw1)
+
+# should I include b_majority_latino in the controls?
+gw1 <- felm(as.formula(paste0('mean_n ~ d ', ' +d:b_majority_latino + d:log_hh_income + b_majority_latino + log_pop + log_hh_income + 
+                              percent_ag + avg_percent_clay', '| countyName + factor(year) + OwnerType | 0 | 0')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+summary(gw1)
+
+# should I include b_majority_latino in the controls?
+# gw2 <- felm(as.formula(paste0('mean_n ~ d ', ' +d:b_majority_latino + b_majority_latino + log_pop + log_hh_income + 
+#                               percent_ag + avg_percent_clay + SYSTEM_NO:year', '| samplePointID + factor(year) | 0 | 0')), 
+#             data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+# 
+# summary(gw2)
+
+gw3 <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino', '| samplePointID + factor(year) | 0 | 0')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+summary(gw3)
+
+sum_marginal(gw3, nlags=0, int_terms = c('b_majority_latino'), pollutant = 'n')
+
+gw4 <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+gw_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+sum_marginal(gw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+
+sw_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
+            data = ni_split[[2]], weights = ni_split[[2]]$n_spid)
+
+sum_marginal(sw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+ni.tr <- ni_drought %>% filter(raw == 0)
+tr_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
+             data = ni.tr, weights = ni.tr$n_spid)
+
+sum_marginal(tr_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+
+ls <- map(list(gw_main, sw_main, tr_main), sum_marginal, 
+          nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n') %>% 
+  bind_rows(.id = 'model') %>%
+  rename(estimate = mean_n, 
+         std.error = se, 
+         p.value = pval, 
+         statistic = t_val) %>% 
+  mutate(term = c(rep('Groundwater', 3), rep('Surface water', 3), rep('Treated water', 3)),
+         model = int_terms)
+
+out <- dwplot(ls,
+              vline = geom_vline(
+                xintercept = 0,
+                colour = "grey60",
+                linetype = 2
+              )) + theme_bw() +
+  scale_color_manual(
+    values = c(' ' = 'darkgoldenrod3', 'b_majority_latino' = 'darkturquoise', 'b_low_income' = 'black'),
+    labels = c("All California", "Majority latino", "Low income")
+  ) +
+  scale_x_continuous(n.breaks = 8) 
+
+save_plot("Plots.spring2022/final_reg.png", out, base_asp = 1.3, scale = 1.1)
 
 # Stargazer
 

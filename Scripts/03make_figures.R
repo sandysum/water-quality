@@ -201,3 +201,39 @@ out <- plot_grid(plotlist = plist, nrow = 1, labels = c('Equal', 'Optimistic', '
 
 save_plot('Plots/0delivered_scenario_drought_as_income.png', out, base_height = 3.2, scale = 3)
 
+
+# Plot maps ---------------------------------------------------------------
+
+rm(list = ls())
+home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
+
+library(tidyverse)
+library(DescTools)
+library(readxl)
+library(readr)
+library(lfe)
+library(sf)
+library(cowplot)
+
+# Read in water systems information with social equity indicators ---------
+
+# https://cacensus.maps.arcgis.com/apps/webappviewer/index.html?id=48be59de0ba94a3dacff1c9116df8b37
+
+# Good website to double check if the census average numbers are correct
+ind <- readRDS(file.path(home, "1int/pws_ind.rds")) 
+# shp_zip <- read_sf("../Data/shp_PWS_SABL_Public_080221/PWS_by_zip.shp")
+shp_ej <- read_sf("../Data/shp_ej.shp")
+
+head(shp_ej)
+
+pws_c <- st_centroid(pws) %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, '\\d+')) %>% 
+left_join(n_pws_10yr, by  = 'SYSTEM_NO') %>% 
+ filter(!is.na(pws_n_mean)) %>% 
+mutate(high_n = pws_n_mean > 5) %>% st_transform(3488) %>% filter(high_n)
+
+ggplot(shp_ej) +
+  geom_sf(aes(fill = prcnt_h), color = 'grey70', size = .5) +
+  geom_sf(data = pws_c, alpha = .6) +
+  theme_minimal() +
+  scale_fill_distiller(palette = "RdPu", trans = 'reverse', name = 'Percent Latino')

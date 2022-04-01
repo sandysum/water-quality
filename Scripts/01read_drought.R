@@ -213,15 +213,24 @@ pdsi_pws_year %>%
 # This is old stuff from the county level PDSI data -----------------------
 # Clean and save PDSI
 
-# pdsi <- pdsi_get(url = "climdiv-pdsidv-v1.0.0-20210907")
-# # keep only California climate divisions
-# 
-# pdsi <- pdsi %>% filter(climdiv %in% c(paste0("040", 1:7)))
-# 
-# pdsi <- pdsi %>% mutate(date = dmy(paste0("01-", month, "-", year))) %>%
-#   filter(year > 1969)
-# 
-# saveRDS(pdsi, "../Data/drought/pdsi_ca_1970_2021.rds")
+pdsi <- pdsi_get(url = "climdiv-pdsidv-v1.0.0-20220304")
+# keep only California climate divisions
+# data(pdsi)
+pdsi <- pdsi %>% filter(climdiv %in% c(paste0("040", 1:7)))
+
+pdsi <- pdsi %>% mutate(date = dmy(paste0("01-", month, "-", year))) 
+
+out <- pdsi %>% ggplot(aes(x=date, y=pdsi, group = climdiv, color = pdsi)) +
+  geom_line() +
+  theme_minimal_hgrid() +
+  geom_hline(yintercept = 0, color = 'red') +
+  scale_x_date(date_breaks = '5 years', date_labels = '%Y') +
+  scale_y_continuous(breaks = seq(-6, 6, 2)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = .9)) +
+  scale_color_distiller(palette = 'Reds', name = 'Drought\n index') +
+  labs(x = '\nYear', y = 'PDSI\n')
+
+save_plot('Plots.spring2022/pdsi.png', out, base_asp = 2.5, scale = 1.2)
 
 # Read in shapefiles and keep only California -----------------------------
 

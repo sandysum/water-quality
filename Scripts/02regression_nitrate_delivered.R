@@ -101,7 +101,7 @@ xvar = list('d', paste(c('d', 'd:b_majority_latino', 'dlag1', 'dlag1:b_majority_
 
 fe = paste(c('SYSTEM_NO', 'factor(year)'), collapse = '+')
 
-reg_delivered(df = ni_drought, xvar = xvar, yvar = 'mean_n', fe=fe, clust=0, plot = FALSE)
+reg_delivered(df = ni.optimistic, xvar = xvar, yvar = 'mean_n', fe=fe, clust=0, plot = FALSE)
 
 # 2. xvars with linear trends
 

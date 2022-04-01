@@ -25,7 +25,7 @@ library(cowplot)
 
 # Good website to double check if the census average numbers are correct
 ind <- readRDS(file.path(home, "1int/pws_ind.rds")) 
-
+pws <- read
 # %>% 
 #   filter(SYSTEM_NO %in% (str_extract(pws_shp$SABL_PWSID, "\\d+"))) %>% 
 #   drop_na()
@@ -35,7 +35,7 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 # Run some correlational analysis of social indicators --------------------
 
 ar_reg <- read_rds("../Data/1int/caswrb_ar_reg.rds")
-ni_reg <- read_rds("../Data/1int/caswrb_n_delivered.rds")
+ni_reg <- read_rds("../Data/1int/caswrb_n_reg.rds")
 
 # Read in the violations data
 
@@ -173,8 +173,10 @@ n_pws_10yr <- ni_reg %>% filter(raw==1, year %in% 2010:2020) %>%
   mutate(log_hh_income = log(median_hh_income),
          perc_latino = percent_hispanic*100)%>% 
   filter(!(FeeCodeDescription %in% c('Dead and Done (not active)', 'Transient-Noncommunity Water System')))
+
 quartz()
-n_pws_10yr %>% ungroup() %>% ggplot(aes(percAgArea, pws_n_mean)) +
+
+  n_pws_10yr %>% ungroup() %>% ggplot(aes(percent_ag, pws_n_mean)) +
   geom_point(alpha = .5) +
   geom_smooth() +
   theme_minimal()

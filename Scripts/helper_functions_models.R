@@ -112,14 +112,11 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
     rename(se = value)
   # browser()
   if (contaminant == 'ar') {
-    baseline_ar <- df %>%
-      mutate(year_n = as.integer(as.character(year))) %>%
-      filter(year_n == min(year_n))
     
     bs <- tibble(
-        year_n = min(baseline_ar$year_n),
-        avg_ar = mean(baseline_ar$ar_ugl, na.rm = TRUE)
-      )
+      year_n = min(years),
+      avg_n = mean(getfe(es)[['effect']])
+    )
     
     x <- x %>% filter(str_detect(coef, 'year')) %>%
       mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
@@ -146,13 +143,11 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
       #                     labels=c(by, "All other")) +
       theme(legend.position = 'top')
   } else if (contaminant == 'n') {
-      baseline_ni <- df %>%
-        mutate(year_n = as.integer(as.character(year))) %>%
-        filter(year_n == min(year_n))
+   
       
       bs <- tibble(
         year_n = min(years),
-        avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
+        avg_n = mean(getfe(es)[['effect']])
       )
       
       x <- x %>% filter(str_detect(coef, 'year')) %>%
@@ -170,7 +165,6 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
         geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = .4, fill = 'lightgrey') +
         theme_minimal_hgrid() +
         ggtitle(label = main) +
-        lims(y = ylm, x = c(min(years), max(years))) +
         labs(x = '\nYear') +
         scale_x_continuous(breaks = years) +
         theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
@@ -178,26 +172,22 @@ plot_es <- function(es, df, contaminant = "ar", main = "",
         # scale_colour_manual(" ", values=c("darkgreen", "black"),
         #                     breaks=c('Majority Latino', "All other"), 
         #                     labels=c(by, "All other")) +
-        theme(legend.position = 'top')
+        theme(legend.position = 'top') + lims(y = ylm)
   }
 }
 
-plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
+plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "", ylab = ' ', 
                     ylm = c(0,8)) {
-  years = df$year %>% unique()
+  years = df$year %>% unique() %>% as.character() %>% as.numeric()
   # browser()
   se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
   x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
     left_join(se) %>% 
     rename(se = value)
-
-    baseline_ni <- df %>%
-      mutate(year_n = as.integer(as.character(year))) %>%
-      filter(year_n == min(year_n))
     
     bs <- tibble(
-      year_n = min(baseline_ni$year_n),
-      avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
+      year_n = min(years),
+      avg_n = mean(getfe(es)[['effect']])
     )
     
     se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
@@ -205,20 +195,13 @@ plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
       left_join(se2) %>% 
       rename(se = value)
     
-    baseline_ni <- df %>%
-      mutate(year_n = as.integer(as.character(year))) %>%
-      filter(year_n == min(year_n))
-    baseline_ni2 <- df2 %>%
-      mutate(year_n = as.integer(as.character(year))) %>%
-      filter(year_n == min(year_n))
-    
     bs <- tibble(
-      year_n = min(baseline_ni$year_n),
-      avg_n = mean(baseline_ni$n_mgl, na.rm = TRUE)
+      year_n = min(years),
+      avg_n = mean(getfe(es)[['effect']])
     )
     bs2 <- tibble(
-      year_n = min(baseline_ni2$year_n),
-      avg_n = mean(baseline_ni2$n_mgl, na.rm = TRUE)
+      year_n = min(years),
+      avg_n = mean(getfe(es2)[['effect']])
     )
     x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
       mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
@@ -227,7 +210,7 @@ plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
       arrange(year_n) %>% 
       mutate(upr = 1.96*se+avg_n,
              lwr = avg_n - 1.96*se,
-             group = 'majority Latino')
+             group = 'Majority Latino')
     
     x <- x %>% filter(str_detect(coef, 'year')) %>%
       mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
@@ -236,12 +219,12 @@ plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
       arrange(year_n) %>% 
       mutate(upr = 1.96*se+avg_n,
              lwr = avg_n - 1.96*se,
-             group = 'non-majority Latino') %>% 
+             group = 'All other') %>% 
       bind_rows(x2)
     
     x %>% 
       filter(year_n > min(years)) %>% 
-      ggplot(aes(year_n, avg)) +
+      ggplot(aes(year_n, avg_n)) +
       geom_line(aes(color = group), size = 1) +
       geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
       theme_minimal_hgrid() +
@@ -253,7 +236,7 @@ plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "",
             plot.background = element_rect(fill = "white", color = NA)) +
       scale_colour_manual(" ", values=c("darkgreen", "black"),
                           breaks=c('Majority Latino', "All other"), 
-                          labels=c(by, "All other")) +
+                          labels=c('Majority Latino', "All other")) +
       theme(legend.position = 'top')
 }
 
@@ -488,18 +471,18 @@ sum_coeffs <- function(mod, int_terms = c('d:b_majority_latino',
   return(out)
 }
 
-sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'), contaminant = "ar") {
+sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'), pollutant = "ar") {
   e <- 1+nlags
   df <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients)) %>% 
     mutate(beta = str_replace(beta, "d$|d(?=:)", "dlag0"))
-  vcov <- mod$clustervcv
+  vcov <- mod$vcv
   row.names(vcov) <- row.names(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
   colnames(vcov) <-  colnames(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
   # x %>% filter(str_detect(beta, "d$|dlag\\d$"))
   
   # calculating point estimate and se for gw-raw over time
-  coeff <- df %>% filter(str_detect(beta, "d$|dlag\\d$")) %>%
-    mutate(se = mod$cse[1:e], 
+  coeff <- df %>% filter(str_detect(beta, "d$|^dlag\\d$")) %>%
+    mutate(se = mod$se[1:e], 
            int_terms = " ")
   out <- c()
   for (j in 1:length(int_terms)) {
@@ -507,8 +490,10 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
     out[[j]] <- map(0:nlags, function(x){
       
       tmp <- df %>% filter(str_detect(beta, paste0("dlag", x))) %>%
-        filter(str_detect(beta, paste0("dlag", x, "$")) |
-                 str_detect(beta, int_terms[j]))
+        filter(str_detect(beta, paste0("^dlag", x, "$")))
+      tmp2 <- df %>% filter(str_detect(beta, paste0("dlag", x))) %>% 
+        filter(str_detect(beta, int_terms[j])) 
+      tmp <- tmp %>% bind_rows(tmp2)
       ind <- row.names(vcov) %in% tmp$beta %>% which()
       vcov_tmp <- vcov[ind, ind]
         tibble(
@@ -651,8 +636,7 @@ reg_delivered <- function(df, nlags, xvar, yvar, fe = "0", clust = "0", plot = T
     }
     stargazer(mod, omit = ':year|Constant', 
               title = 'Impacts of a unit increase in drought measure',
-              dep.var.labels = paste0('Mean concentration of ', lb), type = 'html',
-              style = 'qje', digits = 3,
+              dep.var.labels = paste0('Mean concentration of ', lb), digits = 3,
               # add.lines = list(c("Fixed effects?", "CWS and year",  "CWS and year", "CWS linear trends", "CWS linear trends")),
               single.row = TRUE)
   }
