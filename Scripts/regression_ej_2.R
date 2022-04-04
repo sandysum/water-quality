@@ -25,7 +25,7 @@ library(cowplot)
 
 # Good website to double check if the census average numbers are correct
 ind <- readRDS(file.path(home, "1int/pws_ind.rds")) 
-pws <- read
+
 # %>% 
 #   filter(SYSTEM_NO %in% (str_extract(pws_shp$SABL_PWSID, "\\d+"))) %>% 
 #   drop_na()
@@ -126,7 +126,7 @@ ggplot(pws_vio, aes(avg_percent_clay, percAgArea)) +
 # Q1 are DAC getting worst raw water?
 # filter to raw and in the last 10 years
 as_pws_10yr <- ar_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
-  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
+  group_by(SYSTEM_NO) %>% 
   dplyr::summarize(pws_as_mean = mean(mean_as, na.rm = TRUE),
             pws_as_median = median(mean_as, na.rm = TRUE)) %>% 
   left_join(ind) %>% 
@@ -165,7 +165,7 @@ summary(mod_as_ej_income)
 
 # Q1 are DAC getting worst raw water?
 n_pws_10yr <- ni_reg %>% filter(raw==1, year %in% 2010:2020) %>% 
-  group_by(SYSTEM_NO, CITY, ZIP, POP_SERV) %>% 
+  group_by(SYSTEM_NO) %>% 
   dplyr::summarize(pws_n_mean = mean(mean_n, na.rm = TRUE),
             pws_n_median = median(mean_n, na.rm = TRUE)) %>% 
   left_join(ind) %>% 

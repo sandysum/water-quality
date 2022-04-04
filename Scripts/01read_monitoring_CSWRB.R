@@ -6,7 +6,7 @@
 # sandysum@ucsb.edu
 #################################
 
-# home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data"
 
 home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
 
@@ -19,9 +19,9 @@ library(readxl)
 library(rdrobust)
 library(cowplot)
 
-ar_reg <-read_rds("../Data/1int/caswrb_ar_1974-2021.rds")
+ar <-read_rds("../Data/1int/caswrb_ar_1974-2021.rds")
 n <- read_rds("../Data/1int/caswrb_n_1974-2022.rds")
-fe_reg <- read_rds("../Data/1int/caswrb_fe_1974-2021.rds")
+ind <- readRDS("../Data/1int/pws_ind.rds")
 
 dups <- ind %>% 
   group_by(SYSTEM_NO) %>% 
@@ -72,6 +72,9 @@ chem74_99 <- read_csv(file.path(home, "ca_water_qual/chem_1974_1999.csv")) %>% f
 chem08_14 <- read_csv(file.path(home, "ca_water_qual/chem_2008_2014.csv")) %>% filter(STORE_NUM == "01002")
 chem15_20 <- read_csv(file.path(home, "ca_water_qual/chem_2015_2020.csv")) %>% filter(STORE_NUM == "01002")
 chem00_07 <- read_csv(file.path(home, "ca_water_qual/chem_2000_2007.csv")) %>% filter(STORE_NUM == "01002")
+# read file from the new format 2019-2022
+chem19_21 <- read_csv(file.path(home, "ca_water_qual/01012019 to present.csv")) %>% 
+  filter(`Analyte Name` == "ARSENIC")
 
 sys <- read_xlsx(file.path(home, "ca_water_qual/watsys.xlsx")) 
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
@@ -111,8 +114,43 @@ all_arsenic %>%
 
 rm(list = ls(pattern = 'chem'))
 
-saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2021.rds")
+# Clean and join 2019-2022 new data ---------------------------------------
 
+names(chem19_21) <- names(chem19_21) %>% str_replace_all('\\s', '')
+
+clean <- chem19_21 %>% 
+  mutate(SYSTEM_NO = str_extract(WaterSystemNumber, '\\d+'),
+         samplePointID = str_extract(PSCode, '\\d+_\\d{3}') %>% str_replace("_", "-")) %>% 
+  select(samplePointID, sampleTime = SampleTime, sampleDate = SampleDate, ar_ugl = Result) %>% 
+  mutate(sampleDate = mdy(sampleDate),
+         year = year(sampleDate),
+         sampleTime = as.character(sampleTime))
+
+((clean$samplePointID %>% unique()) %in% unique(ar$samplePointID)) %>% sum()
+
+all_arsenic <- ar %>% select(names(clean)) %>% 
+  bind_rows(clean) %>% 
+  # distinct(samplePointID, sampleDate, n_mgl, .keep_all = TRUE) %>% 
+  # all_nitrate_tmp %>%
+  left_join(loc, by = c("samplePointID" = "PRI_STA_C")) %>%
+  mutate(countyNumber = as.numeric(COUNTY), .keep = "unused") %>%
+  left_join(c_nm) %>% 
+  # left_join(sys) %>%
+  select(-COMMENT_1) %>%
+  # filter out destroyed waste water well and pending status
+  filter(!(STATUS %in% c('DS', 'WW', 'PN'))) %>%
+  mutate(
+    WATER_TYPE = if_else(WATER_TYPE == "g", "G", WATER_TYPE),
+    sampleHour = str_extract(sampleTime, "\\d{2}"),
+    # raw, untreated, monitoring well, and agriculture well considered raw
+    raw = if_else(map(str_extract_all(STATUS, "."), 2) %in% c('R', 'U', 'W', 'G'), 1, 0),
+    countyName = str_to_lower(countyName)
+  )  %>% distinct(samplePointID, sampleDate, ar_ugl, .keep_all = TRUE) %>% 
+  rename(as_ugl = ar_ugl) 
+  
+
+saveRDS(all_nitrate, "../Data/1int/caswrb_n_1974-2022.rds")
+saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2022.rds")
 
 # Clean and save Arsenic data for regression -----------------------------
 
@@ -122,61 +160,19 @@ saveRDS(all_arsenic, "../Data/1int/caswrb_ar_1974-2021.rds")
 
 # drop the duplicates! and keep only ground or surface water type. 
 ar <- readRDS("../Data/1int/caswrb_ar_1974-2021.rds")
-ar_reg <- ar_reg %>% 
+ar_reg <- all_arsenic %>% 
   # I think that it is more correct to winsorize before taking means and medians
-  mutate(ar_ugl = Winsorize(ar_ugl, probs = c(0, .99))) %>% 
-  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, ar_ugl, .keep_all = TRUE) %>% 
-  filter(WATER_TYPE %in% c("G", "S"), !is.na(ar_ugl)) %>% 
+  mutate(as_ugl = Winsorize(as_ugl, probs = c(0, .99), na.rm = TRUE)) %>% 
+  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, as_ugl, .keep_all = TRUE) %>% 
+  filter(WATER_TYPE %in% c("G", "S"), !is.na(as_ugl)) %>% 
   mutate(gw = if_else(WATER_TYPE == "G", 1, 0),
          cv = if_else(countyName %in% cv_counties, 1, 0),
          gold = if_else(countyName %in% gold, 1, 0)) %>% 
-  group_by(gw, gold, samplePointID, year, SYSTEM_NO, cv, countyName, 
-           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw, CITY, WATER_TYPE) %>% 
-  summarise(mean_as = mean(ar_ugl, na.rm = TRUE),
-            median_as = median(ar_ugl, na.rm = TRUE)) 
+  group_by(gw, gold, samplePointID, year, SYSTEM_NO, cv, countyName, raw, WATER_TYPE) %>% 
+  summarise(mean_as = mean(as_ugl, na.rm = TRUE),
+            median_as = median(as_ugl, na.rm = TRUE)) 
 
 saveRDS(ar_reg, "../Data/1int/caswrb_ar_reg.rds")
-
-# 2. Create a dataset that is at the system no. year for delivered water to household or non-transient
-
-as_list <- ar %>%
-  mutate(as_ugl = Winsorize(ar_ugl, probs = c(0, .99))) %>% 
-  # left_join(ind) %>%
-  filter(!(
-    STATUS %in% c(
-      'AB',
-      'AG',
-      'CM',
-      'SR',
-      'ST',
-      'SU',
-      'PN',
-      'MW',
-      'WW',
-      'IT',
-      'IR',
-      'IU',
-      'IS',
-      'DS'
-    )
-  )) %>%
-  group_by(SYSTEM_NO, year) %>%
-  add_count() %>%
-  mutate(only_one_obs = if_else(n == 1, 1, 0),
-         has_treated = any(
-           unique(STATUS) %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU')
-         )) %>%
-  group_by(SYSTEM_NO, year, only_one_obs, has_treated) %>%
-  summarise(
-    mean_as = mean(as_ugl, na.rm = TRUE),
-    max_as = max(as_ugl, na.rm = TRUE),
-    min_as = min(as_ugl, na.rm = TRUE)
-  ) %>% left_join(ind)
-
-
-delivered_as_all <- as_list %>% distinct()
-
-write_rds(delivered_as_all, "../Data/1int/caswrb_as_delivered.rds")
 
 ################### CLEAN AND SAVE FOR NITRATES --------------------------------------
 
@@ -337,84 +333,84 @@ saveRDS(n_reg, "../Data/1int/caswrb_n_reg.rds")
 
 # Split nitrate observations into only one and more then 1
 
-ind <- readRDS("../Data/1int/pws_ind.rds") %>% 
-  distinct(SYSTEM_NO, .keep_all = TRUE)
-
-n_list <- n_reg %>%
-  # mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>% 
-  # left_join(ind) %>%
-  filter(!(
-    STATUS %in% c(
-      'AB',
-      'AG',
-      'CM',
-      'SR',
-      'ST',
-      'SU',
-      'PN',
-      'MW',
-      'WW',
-      'IT',
-      'IR',
-      'IU',
-      'IS',
-      'DS'
-    )
-  )) %>%
-  group_by(SYSTEM_NO, year) %>%
-  add_count() %>%
-  mutate(only_one_obs = if_else(n == 1, 1, 0),
-         has_treated = any(
-           unique(STATUS) %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU')
-         )) 
-
-# View(n_list %>% right_join(n.list.index[209,]))
-
-# the second list is the spidXy that has only one observations
-# I split the spid x year data into cases to assess which spid should be considered 'delivered'
-# the first one is delivered as there is only 1 sample from 1 spid in that year
-
-n.list <- split(n_list, f = n_list$only_one_obs)
-set.seed(38780)
-
-# n.list[[1]] %>% ungroup() %>% filter(SYSTEM_NO==sample(n_reg$SYSTEM_NO, 1), year %in% 2012:2019) %>% 
-#   dplyr::select(1:4, STATUS, only_one_obs, has_treated)
-
-# just take plain old mean of the spid years with only one observation
-delivered1 <- n.list[[2]] %>%
-  dplyr::select(SYSTEM_NO, year, mean_n) %>%
-  group_by(SYSTEM_NO, year) %>%
-  summarise(n = mean(mean_n, na.rm = TRUE),
-            max_n = mean_n, 
-            min_n = mean_n)
-
-# further split the ones with more than 1 sources into treated and raw
-
-# first is FALSE (no treated)
-# second is TRUE (has treated)
-
-n.list.many <- split(n.list[[1]], f = n.list[[1]]$has_treated)
-
-# generate function
-delivered2 <- n.list.many[[1]] %>% 
-  group_by(SYSTEM_NO, year) %>%
-  summarise(n = mean(mean_n, na.rm = TRUE),
-            max_n = max(mean_n, na.rm = TRUE),
-            min_n = min(mean_n, na.rm = TRUE))
-
-delivered3 <- n.list.many[[2]] %>% 
-  filter(STATUS %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU')) %>% 
-  group_by(SYSTEM_NO, year) %>%
-  summarise(n = mean(mean_n, na.rm = TRUE),
-            max_n = max(mean_n, na.rm = TRUE),
-            min_n = min(mean_n, na.rm = TRUE))
-
-delivered_n_all <- bind_rows(delivered1, delivered2, delivered3) %>%
-  arrange(SYSTEM_NO, year)
-
-delivered_n_all <- delivered_n_all %>% distinct()
-
-write_rds(delivered_n_all, "../Data/1int/caswrb_n_delivered.rds")
+# ind <- readRDS("../Data/1int/pws_ind.rds") %>% 
+#   distinct(SYSTEM_NO, .keep_all = TRUE)
+# 
+# n_list <- n_reg %>%
+#   # mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>% 
+#   # left_join(ind) %>%
+#   filter(!(
+#     STATUS %in% c(
+#       'AB',
+#       'AG',
+#       'CM',
+#       'SR',
+#       'ST',
+#       'SU',
+#       'PN',
+#       'MW',
+#       'WW',
+#       'IT',
+#       'IR',
+#       'IU',
+#       'IS',
+#       'DS'
+#     )
+#   )) %>%
+#   group_by(SYSTEM_NO, year) %>%
+#   add_count() %>%
+#   mutate(only_one_obs = if_else(n == 1, 1, 0),
+#          has_treated = any(
+#            unique(STATUS) %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU')
+#          )) 
+# 
+# # View(n_list %>% right_join(n.list.index[209,]))
+# 
+# # the second list is the spidXy that has only one observations
+# # I split the spid x year data into cases to assess which spid should be considered 'delivered'
+# # the first one is delivered as there is only 1 sample from 1 spid in that year
+# 
+# n.list <- split(n_list, f = n_list$only_one_obs)
+# set.seed(38780)
+# 
+# # n.list[[1]] %>% ungroup() %>% filter(SYSTEM_NO==sample(n_reg$SYSTEM_NO, 1), year %in% 2012:2019) %>% 
+# #   dplyr::select(1:4, STATUS, only_one_obs, has_treated)
+# 
+# # just take plain old mean of the spid years with only one observation
+# delivered1 <- n.list[[2]] %>%
+#   dplyr::select(SYSTEM_NO, year, mean_n) %>%
+#   group_by(SYSTEM_NO, year) %>%
+#   summarise(n = mean(mean_n, na.rm = TRUE),
+#             max_n = mean_n, 
+#             min_n = mean_n)
+# 
+# # further split the ones with more than 1 sources into treated and raw
+# 
+# # first is FALSE (no treated)
+# # second is TRUE (has treated)
+# 
+# n.list.many <- split(n.list[[1]], f = n.list[[1]]$has_treated)
+# 
+# # generate function
+# delivered2 <- n.list.many[[1]] %>% 
+#   group_by(SYSTEM_NO, year) %>%
+#   summarise(n = mean(mean_n, na.rm = TRUE),
+#             max_n = max(mean_n, na.rm = TRUE),
+#             min_n = min(mean_n, na.rm = TRUE))
+# 
+# delivered3 <- n.list.many[[2]] %>% 
+#   filter(STATUS %in% c('AT', 'AU', 'CT', 'CU', 'DR', 'DT', 'PT', 'PU')) %>% 
+#   group_by(SYSTEM_NO, year) %>%
+#   summarise(n = mean(mean_n, na.rm = TRUE),
+#             max_n = max(mean_n, na.rm = TRUE),
+#             min_n = min(mean_n, na.rm = TRUE))
+# 
+# delivered_n_all <- bind_rows(delivered1, delivered2, delivered3) %>%
+#   arrange(SYSTEM_NO, year)
+# 
+# delivered_n_all <- delivered_n_all %>% distinct()
+# 
+# write_rds(delivered_n_all, "../Data/1int/caswrb_n_delivered.rds")
 
 ################### CLEAN AND SAVE FOR IRON ######################
 # filter only code 01045 for IRON

@@ -34,212 +34,6 @@ add_drought <- function(p) {p +
   # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
 }
 
-plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino', years = 2005:2020,
-                              ylm = c(1.2,4), main = ' ',
-                              ylab = 'Mean N conc. (mg/l)\n') {
-  
-  form = paste0(pollutant, "~ factor(year) | SYSTEM_NO | 0 | 0")
-  
-  es <- felm(as.formula(form), data = df %>% filter((!!rlang::sym(by))==1, year %in% years))
-  es2 <- felm(as.formula(form), data = df %>% filter((!!rlang::sym(by))==0, year %in% years))
-  
-  # browser()
-  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
-  x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
-    left_join(se) %>% 
-    rename(se = value)
-  
-  bs <- tibble(
-    year_n = min(years),
-    avg = mean(getfe(es)[['effect']])
-  )
-  
-  se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
-  x2 <- as_tibble(es2$coefficients) %>% mutate(coef = rownames(es2$coefficients)) %>%
-    left_join(se2) %>% 
-    rename(se = value)
-
-  bs2 <- tibble(
-    year_n = min(years),
-    avg = mean(getfe(es2)[['effect']])
-  )
-  
-  x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
-    mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-           avg = !!rlang::sym(pollutant) + bs2$avg) %>% 
-    bind_rows(bs2) %>% 
-    arrange(year_n) %>% 
-    mutate(upr = 1.96*se+avg,
-           lwr = avg - 1.96*se,
-           group = 'All other')
-  
-  x <- x %>% filter(str_detect(coef, 'year')) %>%
-    mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-           avg = !!rlang::sym(pollutant) + bs$avg) %>% 
-    bind_rows(bs) %>% 
-    arrange(year_n) %>% 
-    mutate(upr = 1.96*se+avg,
-           lwr = avg - 1.96*se,
-           group = 'Majority Latino') %>% 
-    bind_rows(x2)
-  
-  x %>% 
-    filter(year_n > min(years)) %>% 
-    ggplot(aes(year_n, avg)) +
-    geom_line(aes(color = group), size = 1) +
-    geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
-    theme_minimal_hgrid() +
-    ggtitle(label = main) +
-    lims(y = ylm, x = c(min(years), max(years))) +
-    labs(x = '\nYear', y = ylab) +
-    scale_x_continuous(breaks = years) +
-    theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-          plot.background = element_rect(fill = "white", color = NA)) +
-    scale_colour_manual(" ", values=c("darkgreen", "black"),
-                        breaks=c('Majority Latino', "All other"), 
-                        labels=c(by, "All other")) +
-    theme(legend.position = 'top')
-  
-}
-
-plot_es <- function(es, df, contaminant = "ar", main = "",
-                    ylm = c(0,8)) {
-  df %>% drop_na(SYSTEM_NO, contains("td"), contains("dy"), year, ZIP)
-  years = df$year %>% unique() %>% as.character() %>% as.numeric()
-  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
-  x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
-    left_join(se) %>% 
-    rename(se = value)
-  # browser()
-  if (contaminant == 'ar') {
-    
-    bs <- tibble(
-      year_n = min(years),
-      avg_n = mean(getfe(es)[['effect']])
-    )
-    
-    x <- x %>% filter(str_detect(coef, 'year')) %>%
-      mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-             avg_ar = ar_ugl + bs$avg_ar) %>% 
-      bind_rows(bs) %>% 
-      arrange(year_n) %>% 
-      mutate(upr = 1.96*se+avg_ar,
-             lwr = avg_ar - 1.96*se)
-    # quartz()
-    x %>% 
-      filter(year_n > min(years)) %>% 
-      ggplot(aes(year_n, avg_ar)) +
-      geom_line(size = 1) +
-      geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
-      theme_minimal_hgrid() +
-      ggtitle(label = main) +
-      lims(y = ylm, x = c(min(years), max(years))) +
-      labs(x = '\nYear') +
-      scale_x_continuous(breaks = years) +
-      theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-            plot.background = element_rect(fill = "white", color = NA)) +
-      # scale_colour_manual(" ", values=c("darkgreen", "black"),
-      #                     breaks=c('Majority Latino', "All other"), 
-      #                     labels=c(by, "All other")) +
-      theme(legend.position = 'top')
-  } else if (contaminant == 'n') {
-   
-      
-      bs <- tibble(
-        year_n = min(years),
-        avg_n = mean(getfe(es)[['effect']])
-      )
-      
-      x <- x %>% filter(str_detect(coef, 'year')) %>%
-        mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-               avg_n = n_mgl + bs$avg_n) %>% 
-        bind_rows(bs) %>% 
-        arrange(year_n) %>% 
-        mutate(upr = 1.96*se+avg_n,
-               lwr = avg_n - 1.96*se)
-      # quartz()
-      x %>% 
-        filter(year_n > min(years)) %>% 
-        ggplot(aes(year_n, avg_n)) +
-        geom_line(size = 1) +
-        geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = .4, fill = 'lightgrey') +
-        theme_minimal_hgrid() +
-        ggtitle(label = main) +
-        labs(x = '\nYear') +
-        scale_x_continuous(breaks = years) +
-        theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-              plot.background = element_rect(fill = "white", color = NA)) +
-        # scale_colour_manual(" ", values=c("darkgreen", "black"),
-        #                     breaks=c('Majority Latino', "All other"), 
-        #                     labels=c(by, "All other")) +
-        theme(legend.position = 'top') + lims(y = ylm)
-  }
-}
-
-plot_es2 <- function(es, es2, df, df2, contaminant = "ar", main = "", ylab = ' ', 
-                    ylm = c(0,8)) {
-  years = df$year %>% unique() %>% as.character() %>% as.numeric()
-  # browser()
-  se <- es$se %>% as_tibble() %>% mutate(coef = names(es$se))
-  x <- as_tibble(es$coefficients) %>% mutate(coef = rownames(es$coefficients)) %>%
-    left_join(se) %>% 
-    rename(se = value)
-    
-    bs <- tibble(
-      year_n = min(years),
-      avg_n = mean(getfe(es)[['effect']])
-    )
-    
-    se2 <- es2$se %>% as_tibble() %>% mutate(coef = names(es2$se))
-    x2 <- as_tibble(es2$coefficients) %>% mutate(coef = rownames(es2$coefficients)) %>%
-      left_join(se2) %>% 
-      rename(se = value)
-    
-    bs <- tibble(
-      year_n = min(years),
-      avg_n = mean(getfe(es)[['effect']])
-    )
-    bs2 <- tibble(
-      year_n = min(years),
-      avg_n = mean(getfe(es2)[['effect']])
-    )
-    x2 <- x2 %>% filter(str_detect(coef, 'year')) %>%
-      mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-             avg_n = n_mgl + bs2$avg_n) %>% 
-      bind_rows(bs2) %>% 
-      arrange(year_n) %>% 
-      mutate(upr = 1.96*se+avg_n,
-             lwr = avg_n - 1.96*se,
-             group = 'Majority Latino')
-    
-    x <- x %>% filter(str_detect(coef, 'year')) %>%
-      mutate(year_n = as.integer(str_extract(coef, "\\d{4}")),
-             avg_n = n_mgl + bs$avg_n) %>% 
-      bind_rows(bs) %>% 
-      arrange(year_n) %>% 
-      mutate(upr = 1.96*se+avg_n,
-             lwr = avg_n - 1.96*se,
-             group = 'All other') %>% 
-      bind_rows(x2)
-    
-    x %>% 
-      filter(year_n > min(years)) %>% 
-      ggplot(aes(year_n, avg_n)) +
-      geom_line(aes(color = group), size = 1) +
-      geom_ribbon(aes(ymin = lwr, ymax = upr, group = group), alpha = .4, fill = 'lightgrey') +
-      theme_minimal_hgrid() +
-      ggtitle(label = main) +
-      lims(y = ylm, x = c(min(years), max(years))) +
-      labs(x = '\nYear', y = ylab) +
-      scale_x_continuous(breaks = years) +
-      theme(axis.text.x = element_text(angle = 45, size = 8, hjust = .9, vjust = .9),
-            plot.background = element_rect(fill = "white", color = NA)) +
-      scale_colour_manual(" ", values=c("darkgreen", "black"),
-                          breaks=c('Majority Latino', "All other"), 
-                          labels=c('Majority Latino', "All other")) +
-      theme(legend.position = 'top')
-}
-
 plot_reg <- function(mod, main = " ", ylm = c(-.04, .01), contaminant = "ar", nleads = 2, nlags = 5) {
   
   se <- mod$cse %>% as_tibble() %>% mutate(coef = names(mod$cse))
@@ -472,6 +266,47 @@ sum_coeffs <- function(mod, int_terms = c('d:b_majority_latino',
 }
 
 sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':raw0|gw0'), pollutant = "ar") {
+  if (class(mod)=='fixest') {
+    e <- 1+nlags
+    df <- as_tibble(mod$coefficients) %>% mutate(beta = names(mod$coefficients)) %>% 
+      mutate(beta = str_replace(beta, "d$|d(?=:)", "dlag0"))
+    vcov <- mod$cov.iid
+    row.names(vcov) <- row.names(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
+    colnames(vcov) <-  colnames(vcov) %>% str_replace("d$|d(?=:)", "dlag0")
+    # x %>% filter(str_detect(beta, "d$|dlag\\d$"))
+    
+    # calculating point estimate and se for gw-raw over time
+    coeff <- df %>% filter(str_detect(beta, "d$|^dlag\\d$")) %>%
+      mutate(se = mod$se[1:e], 
+             int_terms = " ") %>% 
+      rename( !!paste0('mean_', pollutant) := value)
+    out <- c()
+    for (j in 1:length(int_terms)) {
+      # now within each interaction terms we calculate for each lags
+      out[[j]] <- map(0:nlags, function(x){
+        
+        tmp <- df %>% filter(str_detect(beta, paste0("dlag", x))) %>%
+          filter(str_detect(beta, paste0("^dlag", x, "$")))
+        tmp2 <- df %>% filter(str_detect(beta, paste0("dlag", x))) %>% 
+          filter(str_detect(beta, int_terms[j])) 
+        tmp <- tmp %>% bind_rows(tmp2)
+        ind <- row.names(vcov) %in% tmp$beta %>% which()
+        vcov_tmp <- vcov[ind, ind]
+        tibble(
+          !!paste0('mean_', pollutant) := sum(tmp[,1]),
+          se = sqrt(sum(vcov_tmp)),
+          beta = paste0('dlag', x),
+          int_terms = int_terms[j]
+        )
+      }) %>% bind_rows()
+      
+    } 
+    n <- mod$nobs
+    out <- bind_rows(coeff, out) %>%
+      mutate(t_val = UQ(rlang::sym(paste0('mean_', pollutant))) / se,
+             pval = 2 * pt(-abs(t_val), df = n - 1))
+    return(out)
+  } else {
   e <- 1+nlags
   df <- as_tibble(mod$coefficients) %>% mutate(beta = row.names(mod$coefficients)) %>% 
     mutate(beta = str_replace(beta, "d$|d(?=:)", "dlag0"))
@@ -510,6 +345,7 @@ sum_marginal <- function(mod, nlags = 3, int_terms = c('gw0', ':raw0|gXraw0', ':
     mutate(t_val = UQ(rlang::sym(paste0('mean_', pollutant))) / se,
            pval = 2 * pt(-abs(t_val), df = n - 1))
   return(out)
+  }
   }
 
 plot_coeff <-

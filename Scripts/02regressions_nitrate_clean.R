@@ -7,7 +7,7 @@
 # Load packages -----------------------------------------------------------
 rm(list = ls())
 library(tidyverse)
-library(lfe)
+library(fixest)
 library(DescTools)
 library(future.apply)
 library(did)
@@ -22,7 +22,7 @@ ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 ni <-read_rds(file.path(home, "1int/caswrb_n_reg.rds")) %>% left_join(ind) %>% 
   left_join(pdsi)
 
-ni_drought <- subset_years(2006, pollutant = ni , 2021, 1) %>% 
+ni_drought <- subset_years(2007, pollutant = ni , 2021, 1) %>% 
   prep_reg() %>% 
   mutate(b_majority_latino = factor(b_majority_latino),
          b_low_income = factor(b_low_income),
@@ -30,15 +30,23 @@ ni_drought <- subset_years(2006, pollutant = ni , 2021, 1) %>%
          cXy = factor(paste0(CITY, year)),
          ctXy = factor(paste0(countyName, year))) %>% 
   filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
-                       'SU'))
+                       'SU', 'ST', 'CU'))
 
 ni_split <- ni_drought %>% 
   split(ni_drought$gw) %>% 
   map(~(filter(., raw==1)))
 
-table <- ni_drought %>% group_by(SYSTEM_NO, TotalPopulation, b_majority_latino, b_low_income, gw) %>%
-  summarise(n = n() / 16) %>%
-  drop_na() %>%
+table <- ni %>% group_by(SYSTEM_NO, TotalPopulation, b_majority_latino, b_low_income, 
+                         PrimaryWaterSourceType) %>%
+  filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
+                       'SU', 'ST', 'CU')) %>% 
+  summarize(num_source = length(unique(samplePointID)),
+            groundwater = sum(str_detect(PrimaryWaterSourceType, 'Groundwater')),
+            surface = sum(str_detect(PrimaryWaterSourceType, 'Surface')))
+
+table$num_source %>% table()
+  
+
   group_by(b_majority_latino) %>%
   summarize(
     total_pop_served = sum(TotalPopulation[n==1]),
@@ -62,43 +70,6 @@ sys %>%
 
 ni_drought %>% group_by(year) %>% summarise(mean_d = mean(d, na.rm = TRUE))
 
-# create function
-
-source_reg <- function(df, by = '+ d:b_majority_latino') {
-
-mod_ni <-
-  felm(as.formula(paste0('mean_n ~ d ', by, '| factor(year) | 0 | SYSTEM_NO')), 
-       data = df, weights = df$n_spid)
-
-# summary(mod_ni)
-
-# 2 Year + SPID FEs
-
-mod_ni_year_res <-
-  felm(as.formula(paste0('mean_n ~ d ', by, '| samplePointID + factor(year) | 0 | SYSTEM_NO')), 
-       data = df, weights = df$n_spid)
-
-# summary(mod_ni_year_res)
-
-# 3. Linear trends
-mod_ni_linear_year <-
-  felm(as.formula(paste0('mean_n ~ d + ', by, '+ SYSTEM_NO:year | samplePointID | 0 | SYSTEM_NO')), 
-       data = df, weights = df$n_spid)
-
-# summary(mod_ni_linear_year)
-x <- list(mod_ni, mod_ni_year_res, mod_ni_linear_year) 
-# stargazer::stargazer(mod_ni, mod_ni_year_res, 
-#                      mod_ni_linear_year,
-#                      omit = c(':year'), single.row = TRUE,
-#                      add.lines = list(c("Fixed effects?", "Yr", "Yr, Site", 
-#                                         "CWS linear yr, Site")),
-#                      # column.labels = c("All California", "Majority Latino", "Low income"),
-#                      dep.var.labels   = "Mean Nitrate conc. (mg/L)", 
-#                      dep.var.caption = "Outcome:",
-#                      omit.stat = c("adj.rsq", "ser"),
-#                      type = 'html', style = 'aer')
-
-}
 # Main regression GWxML
 
 gwml <- source_reg(ni_split[[1]], by = '+d:b_majority_latino')
@@ -143,22 +114,25 @@ sum_marginal(gw3, nlags=0, int_terms = c('b_majority_latino'), pollutant = 'n')
 gw4 <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
             data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
 
-gw_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
-            data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+# For plotting results ----------------------------------------------------
+
+gw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid, vcov = ~SYSTEM_NO)
 
 sum_marginal(gw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
 
-sw_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
-            data = ni_split[[2]], weights = ni_split[[2]]$n_spid)
+sw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+                 data = ni_split[[2]], weights = ni_split[[2]]$n_spid, vcov = ~SYSTEM_NO)
 
 sum_marginal(sw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+
 ni.tr <- ni_drought %>% filter(raw == 0)
-tr_main <- felm(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income + SYSTEM_NO:year', '| samplePointID | 0 | 0')), 
-             data = ni.tr, weights = ni.tr$n_spid)
+tw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+                 data = ni.tr, weights = ni.tr$n_spid, vcov = ~SYSTEM_NO)
 
-sum_marginal(tr_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+sum_marginal(tw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
 
-ls <- map(list(gw_main, sw_main, tr_main), sum_marginal, 
+ls <- map(list(gw_main, sw_main, tw_main), sum_marginal, 
           nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n') %>% 
   bind_rows(.id = 'model') %>%
   rename(estimate = mean_n, 
@@ -166,7 +140,9 @@ ls <- map(list(gw_main, sw_main, tr_main), sum_marginal,
          p.value = pval, 
          statistic = t_val) %>% 
   mutate(term = c(rep('Groundwater', 3), rep('Surface water', 3), rep('Treated water', 3)),
-         model = int_terms)
+         model = int_terms,
+         estimate = estimate*2, 
+         std.error = std.error*2)
 
 out <- dwplot(ls,
               vline = geom_vline(
@@ -175,12 +151,13 @@ out <- dwplot(ls,
                 linetype = 2
               )) + theme_bw() +
   scale_color_manual(
+    name = ' ',
     values = c(' ' = 'darkgoldenrod3', 'b_majority_latino' = 'darkturquoise', 'b_low_income' = 'black'),
     labels = c("All California", "Majority latino", "Low income")
   ) +
   scale_x_continuous(n.breaks = 8) 
 
-save_plot("Plots.spring2022/final_reg.png", out, base_asp = 1.3, scale = 1.1)
+save_plot("Plots.spring2022/final_reg_n.png", out, base_asp = 1.3, scale = 1)
 
 # Stargazer
 
@@ -259,41 +236,58 @@ out <- dwplot(coeffs,
 
 save_plot("Plots/0source_regression.png", out, base_height = 1.2, scale = 4)
 
-# stargazer::stargazer(mod_ni, mod_ni_ml, 
-#                      mod_ni_li,
-#                      omit = c(':year'), single.row = TRUE,
-#                      add.lines = list(c("Fixed effects?", "Yr", "Yr", 
-#                                         "Yr")),
-#                      column.labels = c("All California", "Majority Latino", "Low income"),
-#                      dep.var.labels   = "Mean Nitrate level (ug/L)", 
-#                      dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"),
-#                      type = 'html', style = 'qje')
-# 
-# stargazer::stargazer(mod_ni_year_res, mod_ni_ml_year_res, 
-#                      mod_ni_li_year_res,
-#                      omit = c(':year'), single.row = TRUE,
-#                      add.lines = list(c("Fixed effects?", "Site, Yr", "Site, Yr", "Site, Yr")),
-#                      column.labels = c("All California", "Majority Latino", "Low income"),
-#                      dep.var.labels   = "Mean Nitrate level (ug/L)", 
-#                      dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"),
-#                      type = 'html', style = 'qje')
-# 
-# stargazer::stargazer(mod_ni_linear_year, mod_ni_ml_linear_year, 
-#                      mod_ni_li_linear_year,
-#                      omit = c(':year'), single.row = TRUE,
-#                      add.lines = list(c("Fixed effects?", "Site, CWS linear yr", "Site, CWS linear yr", 
-#                                         "Site, CWS linear yr")),
-#                      column.labels = c("All California", "Majority Latino", "Low income"),
-#                      dep.var.labels   = "Mean Nitrate level (ug/L)", 
-#                      dep.var.caption = "Outcome:", omit.stat = c("adj.rsq", "ser"),
-#                      type = 'html', style = 'qje')
-# mod_ni_year_res <-
-#   felm(as.formula(paste0('mean_n ~ d ', by, '| CITY + factor(year) | 0 | SYSTEM_NO')), 
-#        data = df, weights = df$n_spid)
-# 
-# mod_ni_year_res <-
-#   felm(as.formula(paste0('mean_n ~ d ', by, ' + log_hh_income + percent_ag | CITY + factor(year) | 0 | SYSTEM_NO')), 
-#        data = df, weights = df$n_spid)
-# 
-# summary(mod_ni_year_res)
-# summary(mod_ni_year_res)
+# Baseline specifications for the effect of drought on nitrates -----------
+# fe is cws x year
+
+fe = paste(c('samplePointID', 'factor(year)'), collapse = '+')
+fe = 'samplePointID + SYSTEM_NO[year]'
+x <-  paste(c('d', 'd:percent_hispanic', 'd:log_hh_income'), collapse = '+')
+form = as.formula(paste0('mean_n', " ~ ", x,   " | ", fe))
+
+# run optimal model on 3 different dataset with different scenarios
+mod <- feols(fml = form, data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+newdata0 <- ni_split[[1]] %>% 
+  ungroup() %>% 
+  select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+  distinct() %>% 
+  mutate(year=2019,
+         d=-0.8)
+
+newdata1 <- ni_split[[1]] %>% 
+  ungroup() %>% 
+  select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+  distinct() %>% 
+  mutate(year=2019,
+         d=2.5)
+
+pred0 <- predict(mod, newdata = newdata0) %>% bind_cols(newdata0) 
+pred1 <- predict(mod, newdata = newdata1) %>% bind_cols(newdata1) 
+
+pred <- pred0 %>% bind_rows(pred1) %>% 
+  spread(key = d, value = `...1`) %>%
+  rename(Predrought = `-0.8`,
+         Drought = `2.5`) %>% 
+  mutate(drought_effect = Drought - Predrought,
+         over5_pre = Predrought>5, 
+         over5_post = Drought > 5,
+         over5_causal_drought = if_else((!over5_pre)&over5_post, 1, 0)) %>% 
+  select(-percent_hispanic, -log_hh_income) %>% 
+  left_join(ind)
+
+pred$over5_post %>% sum(na.rm = TRUE)
+
+ggplot(pred, aes(percent_hispanic, median_hh_income)) +
+  geom_point(aes(color= drought_effect), shape = 15, size = 4) +
+  scale_color_distiller(palette = 'YlOrRd', direction = 1, name = 'Severe drought effect') +
+  theme_minimal() +
+  labs(x = '% Latino PWS Area Served', y = 'Median Household Income ($)\n')
+  
+  
+
+pred_long <- pred %>% gather("When", "meanN", Predrought, Drought)
+
+ggplot(pred_long, aes(meanN, color = When)) +
+  geom_density() +
+  theme_minimal() +
+  facet_wrap(facets = vars(b_majority_latino))
