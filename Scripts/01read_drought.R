@@ -96,8 +96,7 @@ names(pdsi_ca_month) <- names(pdsi_ca_month) %>% str_extract("\\d+") %>% str_pad
 # save pdsi rasterbrick - month year
 
 saveRDS(pdsi_ca_month, "../Data/drought/pdsi_grid_monthyear.rds")
-
-plot(pdsi_ca_month, )
+pdsi_grid <- readRDS("../Data/drought/pdsi_ca_1970_2021.rds")
 
 # Spatial aggregation -1)PWS shapefile 2)PWS with no shapefile ------------
 
@@ -181,15 +180,20 @@ pdsi_pws_year <- bind_rows(pdsi, pdsi2) %>%
   dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE)) %>% 
   mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+"))
 
-saveRDS(pdsi_pws_year, file = "../Data/drought/pdsi_pws_year.rds")
+pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") %>% left_join(ind)
+
+pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") %>% 
+  mutate(d=((mean_pdsi-mean(mean_pdsi, na.rm = TRUE))/sd(mean_pdsi, na.rm = TRUE)),
+         d = d*-1)
+saveRDS(pdsi, file = "../Data/drought/pdsi_pws_year.rds")
 
 # randomly plot some shapefiles from the new zip code level dataset to check 
 
 set.seed(8067986)
-q <- sample(unique(pdsi_pws_year$SABL_PWSID), 400)
+q <- sample(unique(pdsi$SABL_PWSID), 400)
 quartz()
 
-pdsi_pws_year %>% 
+out <- pdsi %>% 
   # mutate(month = as.numeric(str_extract(my, "\\d{2}")),
   #        year = as.numeric(str_extract(my, "\\d{4}$"))) %>%
   # group_by(SABL_PWSID, year) %>%
@@ -197,17 +201,19 @@ pdsi_pws_year %>%
   # mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")) %>%
   filter(SABL_PWSID %in% q) %>%
   ggplot(aes(x = year, y = mean_pdsi, group = SABL_PWSID)) +
-  geom_line(alpha = .4, color = 'grey70') +
+  geom_line(alpha = .4, color = 'grey70', size = .5) +
   theme_minimal_hgrid() +
-  # stat_summary(fun = mean,
-  #              geom = "point", color = 'darkblue', aes(group = year)) +
+  stat_summary(fun = mean,
+               geom = "point", color = 'darkblue', aes(group = year)) +
   scale_x_continuous(breaks = seq(1974, 2022, 2)) +
   # geom_hline(yintercept = 10, color = 'red') +
   theme(axis.text.x = element_text(angle = 45, size = 10)) +
   # ylim(c(-8, 8)) +
   scale_y_continuous(breaks = seq(-8, 8, 1)) +
-  geom_hline(yintercept = -2)
+  geom_hline(yintercept = -2) +
+  labs(x='\n Year', y = 'PDSI')
   
+save_plot(filename = "Plots.spring2022/pdsi.pws.png", plot = out, base_asp = 3, scale = 1.5)
 # WHY DOES MY PDSI DATA GOES UP TO -12??? and 14??? NEED TO CHECK
 
 # This is old stuff from the county level PDSI data -----------------------
@@ -218,19 +224,20 @@ pdsi <- pdsi_get(url = "climdiv-pdsidv-v1.0.0-20220304")
 # data(pdsi)
 pdsi <- pdsi %>% filter(climdiv %in% c(paste0("040", 1:7)))
 
-pdsi <- pdsi %>% mutate(date = dmy(paste0("01-", month, "-", year))) 
+pdsi <- pdsi %>% mutate(date = dmy(paste0("01-", month, "-", year)),
+                        pdsi = pdsi*-1) 
 
 out <- pdsi %>% ggplot(aes(x=date, y=pdsi, group = climdiv, color = pdsi)) +
   geom_line() +
   theme_minimal_hgrid() +
   geom_hline(yintercept = 0, color = 'red') +
   scale_x_date(date_breaks = '5 years', date_labels = '%Y') +
-  scale_y_continuous(breaks = seq(-6, 6, 2)) +
+  scale_y_continuous(breaks = seq(-8, 8, 2)) +
   theme(axis.text.x = element_text(angle = 45, hjust = .9)) +
-  scale_color_distiller(palette = 'Reds', name = 'Drought\n index') +
-  labs(x = '\nYear', y = 'PDSI\n')
+  scale_color_distiller(palette = 'Reds', name = 'Drought\n index', direction = 1) +
+  labs(x = '\nYear', y = expression(PDSI^{-1}))
 
-save_plot('Plots.spring2022/pdsi.png', out, base_asp = 2.5, scale = 1.2)
+save_plot('Plots.spring2022/pdsi.png', out, base_asp = 3, scale = 1.2)
 
 # Read in shapefiles and keep only California -----------------------------
 

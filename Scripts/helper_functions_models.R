@@ -195,14 +195,9 @@ prep_reg <- function(df) {
   
   df <- df %>% arrange(samplePointID, year)
   
-  mean.d <- mean(df$mean_pdsi, na.rm = TRUE)
-  sd.d <- sd(df$mean_pdsi, na.rm = TRUE)
-  
   x <- df %>% 
     group_by(samplePointID) %>% 
     mutate(
-      d = ((mean_pdsi-mean.d)*-1)/sd.d,
-      # d = if_else(mean_pdsi <= -1, 1, 0), 
       dlead = lead(d),
       dlead2 = lead(dlead),
       dlag1 = lag(d),

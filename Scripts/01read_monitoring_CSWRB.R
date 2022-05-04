@@ -20,7 +20,7 @@ library(rdrobust)
 library(cowplot)
 
 ar <-read_rds("../Data/1int/caswrb_ar_1974-2021.rds")
-n <- read_rds("../Data/1int/caswrb_n_1974-2022.rds")
+n <- read_rds("Google Drive/My Drive/0Projects/1Water/2Quality/Data/1int/caswrb_n_1974-2022.rds")
 ind <- readRDS("../Data/1int/pws_ind.rds")
 
 dups <- ind %>% 
@@ -316,9 +316,9 @@ saveRDS(all_nitrate, "../Data/1int/caswrb_n_1974-2022.rds")
 
 # Tidy save N data at the spid and year level -----------------------------
 
-n_reg <- readRDS("../Data/1int/caswrb_n_1974-2022.rds")
+n <- readRDS("../Data/1int/caswrb_n_1974-2022.rds")
 
-n_reg <- n_reg %>% 
+n_reg <- n %>% 
   mutate(n_mgl = Winsorize(n_mgl, probs = c(0, .99))) %>% 
   filter(WATER_TYPE %in% c("G", "S"), !is.na(n_mgl)) %>% 
   mutate(gw = if_else(WATER_TYPE == "G", 1, 0)) %>% 
@@ -327,7 +327,7 @@ n_reg <- n_reg %>%
   summarise(mean_n = mean(n_mgl, na.rm = TRUE),
             median_n = median(n_mgl, na.rm = TRUE))
 
-saveRDS(n_reg, "../Data/1int/caswrb_n_reg.rds")
+saveRDS(n_reg, "Google Drive/My Drive/0Projects/1Water/2Quality/Data/1int/caswrb_n_reg.rds")
 
 # 2. Create a dataset that is at the system no. year for delivered water to household or non-transient
 

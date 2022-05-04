@@ -1,11 +1,11 @@
 
 # This function takes in a N/AS dataset, pollutant name, subsets to water type, and outputs the event study
 # dataset and year coefficients
-es_mod <- function(df, pollutant = 'as_ugl', w = c('S'), year_start = 2006, r = 1) {
-  
+es_mod <- function(df, pollutant = 'as_ugl', w = c('S'), year_start = 2006, r = c(1, 0)) {
+  # browser()
   mod <- df %>%
     mutate(!!pollutant := Winsorize(!!sym(pollutant), probs = c(0, .99), na.rm = TRUE)) %>%
-    filter(year >= year_start, raw == r, WATER_TYPE %in% w) %>% 
+    filter(year >= year_start, raw %in% r, WATER_TYPE %in% w) %>% 
     mutate(
       td = str_extract(sampleTime, "\\d{2}") %>% as.numeric()
       %>% if_else((. == 44 | . == 80), NA_real_, .),
@@ -31,7 +31,6 @@ es_mod <- function(df, pollutant = 'as_ugl', w = c('S'), year_start = 2006, r = 
   return(list(mod, es))
 }
 
-asw <- es_mod(ar)
 
 plot_es_delivered <- function(df, pollutant = 'mean_n', by = 'b_majority_latino', years = 2005:2020,
                               ylm = c(1.2,4), main = ' ',
@@ -109,7 +108,7 @@ plot_es <- function(df, w = c('S'), pollutant = 'as_ugl', years = 2005:2020,
                      ylab = 'Mean As conc. (g/l)\n') {
   
   es <- es_mod(df = df %>% filter(year %in% years), 
-               pollutant = pollutant, w %in% w, year_start = min(years), r %in% r)
+               pollutant = pollutant, w = w, year_start = min(years), r = r)
   
   # browser()
   se <- es[[2]]$se %>% as_tibble() %>% mutate(coef = names(es[[2]]$se))
@@ -159,10 +158,10 @@ plot_es2 <- function(df, w = c('S'), pollutant = 'as_ugl', by = 'b_majority_lati
   }
   
   es <- es_mod(df = df %>% filter((!!rlang::sym(by))==1, year %in% years), 
-               pollutant = pollutant, w %in% w, year_start = min(years), r %in% r)
+               pollutant = pollutant, w = w, year_start = min(years), r = r)
   
   es2 <- es_mod(df = df %>% filter((!!rlang::sym(by))==0, year %in% years), 
-               pollutant = pollutant, w %in% w, year_start = min(years), r %in% r)
+               pollutant = pollutant, w = w, year_start = min(years), r = r)
   
   # browser()
   se <- es[[2]]$se %>% as_tibble() %>% mutate(coef = names(es[[2]]$se))
@@ -219,33 +218,77 @@ plot_es2 <- function(df, w = c('S'), pollutant = 'as_ugl', by = 'b_majority_lati
     scale_colour_manual(" ", values=c(cl, "black"),
                         breaks=c(brk, "All other"), 
                         labels=c(by, "All other")) +
-    theme(legend.position = 'top')
+    theme(legend.position = 'none')
   
 }
 
 # create function
 
 
-source_reg <- function(df, by = '+ d:b_majority_latino') {
-  out <- c()
-  
+source_reg <- function(df, pollutant) {
+  # out <- c()
+  if (pollutant == 'n') {
   m1 <- feols(fml = as.formula("mean_n ~ d | factor(year)"), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-  summary(m1)
+  # summary(m1)
   
-  m2 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + log_hh_income + log_pop + percent_ag | FeeCode + RegulatingAgency + StateWaterSystemTypeC+OwnerType + factor(year)"), 
-              data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-  summary(m2)
-  # run optimal model on 3 different dataset with different scenarios
-  
-  m3 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income| samplePointID + factor(year)"), 
+  m2 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino | factor(year)"), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   
-  summary(m3)
+  # summary(m2)
   
-  m4 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income | samplePointID + SYSTEM_NO[year]"), 
+  m3 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)"), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+  # summary(m3)
   
-  summary(m4)
+  m4 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + factor(year)"), 
+              data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+  # summary(m4)
+  
+  m5 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]"), 
+              data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+  # summary(m5)
+  
+  m6 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]"), 
+              data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+  # summary(m6)
+  
+  # m7 <- feols(fml = as.formula("mean_n ~ d + d:percent_hispanic + d:log_hh_income | samplePointID + SYSTEM_NO[year]"), 
+  #             data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+  # summary(m7)
+  } else {
+    m1 <- feols(fml = as.formula("mean_as ~ d | factor(year)"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    # summary(m1)
+    
+    m2 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino | factor(year)"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    
+    # summary(m2)
+    
+    m3 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    # summary(m3)
+    
+    m4 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + factor(year)"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    # summary(m4)
+    
+    m5 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    # summary(m5)
+    
+    m6 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]"), 
+                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    summary(m6)
+    
+    # m7 <- feols(fml = as.formula("mean_as ~ d + d:percent_hispanic + d:log_hh_income | samplePointID + SYSTEM_NO[year]"), 
+    #             data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
+    # summary(m7)
+  }
+  
+etable(m1, m2, m3, m4, m5, m6, tex = TRUE,
+       digits = 3, order = c('d$', 'd:'), drop = 'Intercept')
   
 }
+

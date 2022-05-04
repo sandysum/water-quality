@@ -28,7 +28,8 @@ ar_reg <-read_rds(file.path(home, "1int/caswrb_ar_reg.rds"))
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
-
+loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
+  mutate(STATUS = str_to_upper(STATUS))
 as <- read_rds(file.path(home, "1int/caswrb_ar_reg.rds")) %>% left_join(ind) %>% 
   left_join(pdsi) %>% 
   left_join(loc, by =c('samplePointID' = 'PRI_STA_C', "SYSTEM_NO"))
@@ -36,17 +37,15 @@ as <- read_rds(file.path(home, "1int/caswrb_ar_reg.rds")) %>% left_join(ind) %>%
 as_drought <- subset_years(2008, pollutant = as, 2021, 1) %>% 
   prep_reg() %>% 
   mutate(b_majority_latino = factor(b_majority_latino),
-         b_low_income = factor(b_low_income),
-         raXy = factor(paste0(RegulatingAgency, year)),
-         cXy = factor(paste0(CITY, year)),
-         ctXy = factor(paste0(countyName, year))) %>% 
+         b_low_income = factor(b_low_income)) %>% 
   filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
                        'SU', 'ST', 'CU'))
 
 as_split <- as_drought %>% 
-  split(as_drought$gw) %>% 
-  map(~(filter(., raw==1)))
+  split(as_drought$gw)
 
+source_reg(as_split[[1]], pollutant = 'as')
+source_reg(as_split[[2]], pollutant = 'as')
 
 # Visualize annual trends within PWS --------------------------------------
 set.seed(8997)
@@ -75,25 +74,18 @@ gw_main <- feols(as.formula(paste0('mean_as ~ d ', ' + d:b_majority_latino + d:b
 sw_main <- feols(as.formula(paste0('mean_as ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
                  data = as_split[[2]], weights = as_split[[2]]$n_spid, vcov = ~SYSTEM_NO)
 
-# sum_marginal(sw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
 
-as.tr <- as_drought %>% filter(raw == 0)
-tw_main <- feols(as.formula(paste0('mean_as ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
-                 data = as.tr, weights = as.tr$n_spid, vcov = ~SYSTEM_NO)
-
-# sum_marginal(tw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
-
-ls <- map(list(gw_main, sw_main, tw_main), sum_marginal, 
+ls <- map(list(gw_main, sw_main), sum_marginal, 
           nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'as') %>% 
   bind_rows(.id = 'model') %>%
   rename(estimate = mean_as, 
          std.error = se, 
          p.value = pval, 
          statistic = t_val) %>% 
-  mutate(term = c(rep('Groundwater', 3), rep('Surface water', 3), rep('Treated water', 3)),
+  mutate(term = c(rep('Groundwater', 3), rep('Surface water', 3)),
          model = int_terms,
-         estimate = estimate*2, 
-         std.error = std.error*2)
+         estimate = estimate*3, 
+         std.error = std.error*3)
 
 out <- dwplot(ls,
               vline = geom_vline(
@@ -106,6 +98,7 @@ out <- dwplot(ls,
     values = c(' ' = 'darkgoldenrod3', 'b_majority_latino' = 'darkturquoise', 'b_low_income' = 'black'),
     labels = c("All California", "Majority latino", "Low income")
   ) +
-  scale_x_continuous(n.breaks = 6) 
+  scale_x_continuous(n.breaks = 6)+
+  theme(axis.text.y = element_text(size = 12))
 
-save_plot("Plots.spring2022/final_reg_as.png", out, base_asp = 1.3, scale = 1)
+save_plot("Plots.spring2022/final_reg_as.png", out, base_asp = 1.4, scale = 1)

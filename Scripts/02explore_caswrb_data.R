@@ -20,24 +20,22 @@ options(scipen=999)
 rm(list = ls())
 
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
-home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
+# home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
 # Read data in ------------------------------------------------------------
 
 # read arsenic and nitrate data from the CA SWRB portal 
-ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2021.rds"))
-ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
-ind <- read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
-
-ni.delivered <- read_rds(file.path(home, "1int/caswrb_n_delivered.rds"))
+ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2022.rds")) %>% 
+  left_join(ind)
+ar_reg <- read_rds(file.path(home, "1int/caswrb_ar_1974-2022.rds")) %>% 
+  left_join(ind)
+ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2022.rds"))
+ind <- read_rds(file.path(home, "1int/pws_ind.rds"))
 
 # explore and clean ind
 # there are duplicates in ind
 
 # which are the duplicates?
 # keep only the PWS that are relevant for my analysis
-active <- ind %>% filter()
-ind %>% table()
-# saveRDS(distinct, file.path(home, "1int/pws_ind.rds"))
 
 ind$ResidentialPopulation %>% sum(na.rm = TRUE)
 
@@ -59,21 +57,6 @@ la <- ni %>% filter(SYSTEM_NO == '1910067')
 paramount <- ni %>% filter(SYSTEM_NO=='1910105') 
 
 paramount$samplePointID %>% table()
-
-
-# Generate dataset for data collection ------------------------------------
-
-large <- ind %>% filter(ResidentialPopulation>20000)
-sources <- read_xlsx("../Data/ca_water_qual/siteloc.xlsx")
-sources <- sources %>% 
-  mutate(STATUS = str_to_upper(STATUS))
-
-rel.source <- sources %>% 
-  filter(SYSTEM_NO %in% large$SYSTEM_NO,
-         !(STATUS %in% c('AB', 'AG', 'CM', 'SR', 'ST', 'SU', 'PN', 'MW', 
-                         'WW', 'IT', 'IR', 'IS', 'DS')))
-
-write_csv(rel.source, file = '../Data/1int/pws_source_prop2.csv')
 
 # read in gridded drought data
 
@@ -154,12 +137,24 @@ ar %>%
 
 # Look at a sub sample of Arsenic time series for some PWS ---------------
 
+# Arsenic raw trends
+ar$year %>% table() %>% tibble()
+
+spid_with_10_years %>% mutate(month = month(sampleDate)) %>% 
+  filter(!is.na(WATER_TYPE), WATER_TYPE != 'W', year > 1985) %>% 
+  mutate(as_ugl = Winsorize(as_ugl, probs = c(0, 0.99),na.rm = TRUE)) %>% 
+  ggplot(aes(year, as_ugl, color = WATER_TYPE)) +
+  stat_summary(fun.y = mean,
+               geom = "line") +
+  geom_vline(xintercept = 2006, color = 'red') +
+  theme_bw()
+  
 # RAW 
 set.seed(1028928)
 q <- sample(unique(ar$samplePointID), 1000)
 ar_sub <- ar %>% filter(samplePointID %in% q)
 
-spid_with_20_years <- subset_years(ar_sub, 2010, 2020, by =1)
+spid_with_10_years <- subset_years(1999,ar, 2009, by =1)
 
 # 50 spid with 20 years of data
 set.seed(243)
