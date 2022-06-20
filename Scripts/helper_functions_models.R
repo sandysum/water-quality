@@ -23,11 +23,22 @@ plot.means <- function(var.name, df, by.var) {
     labs(title = var.name %>% str_extract(".+(?=(_conc))"))
 }
 
-add_drought <- function(p) {p + 
-  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  geom_rect(aes(xmin=1999.5,xmax=2002.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")+
-  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = .005,fill="indianred1")
+add_drought <- function(p, a) {p + 
+  geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+  geom_rect(aes(xmin=2000, xmax=2004,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+  geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+  geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")
+  # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
+  # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+  # geom_rect(aes(xmin=2009.5,xmax=2011.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
+}
+
+add_drought2 <- function(p, a) {p + 
+    geom_rect(aes(xmin=2006.5,xmax=2009.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+    # geom_rect(aes(xmin=2000, xmax=2004,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+    geom_rect(aes(xmin=2011.5,xmax=2016.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")+
+    geom_rect(aes(xmin=2019.5,xmax=2021.5,ymin=-Inf,ymax=Inf),alpha = a,fill="darkorange")
   # geom_rect(aes(xmin=2017.5,xmax=2018.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="indianred1")+
   # geom_rect(aes(xmin=1995.5,xmax=1999.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+
   # geom_rect(aes(xmin=2004.5,xmax=2006.5,ymin=-Inf,ymax=Inf),alpha = .01,fill="skyblue3")+

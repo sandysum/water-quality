@@ -13,7 +13,7 @@ library(lubridate)
 library(ggplot2)
 library(DescTools)
 library(sf)
-
+setwd(home)
 crop <- read_sf("../Data/shp_cropping_2018/i15_Crop_Mapping_2018.shp")
 
 # change everything to a circle with a fixed radius for computing ag land

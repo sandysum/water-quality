@@ -13,23 +13,26 @@ library(ggplot2)
 library(kableExtra)
 library(tigris)
 library(DescTools)
-library(Hmisc)
+library(did)
 library(lfe)
 library(zoo)
 options(scipen=999)
 rm(list = ls())
 
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
-# home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
+home <- "G:/My Drive/0Projects/1Water/2Quality/Data"
 # Read data in ------------------------------------------------------------
 
 # read arsenic and nitrate data from the CA SWRB portal 
+ind <- read_rds(file.path(home, "1int/pws_ind.rds"))
 ar <- read_rds(file.path(home, "1int/caswrb_ar_1974-2022.rds")) %>% 
   left_join(ind)
-ar_reg <- read_rds(file.path(home, "1int/caswrb_ar_1974-2022.rds")) %>% 
+ar_reg <- read_rds(file.path(home, "1int/caswrb_ar_reg.rds")) %>% 
   left_join(ind)
 ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2022.rds"))
-ind <- read_rds(file.path(home, "1int/pws_ind.rds"))
+geog <- read_csv("../Data/SDWA-DL/SDWA_GEOGRAPHIC_AREAS.csv") %>% 
+  distinct()
+facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv"))
 
 # explore and clean ind
 # there are duplicates in ind
@@ -70,7 +73,7 @@ pdsi <- readRDS(file.path(home, "drought/pdsi_pws_monthyear.rds")) %>%
 # Look at a sub sample of drought time series for some PWS ----------------
 
 # can see reassuring patterns of drought that are congruent with historical california drought.
-set.seed(1028928)
+set.seed(10292)
 q <- sample(pdsi$SABL_PWSID, 6)
 quartz()
 pdsi %>% 
@@ -82,7 +85,6 @@ pdsi %>%
   geom_hline(yintercept = 0, color = 'red') +
   theme(axis.text.x = element_text(angle = 45)) +
   scale_color_brewer(palette = "Greens")
-
 
 # Investigate distribution sample points -----------------------------------
 
@@ -185,11 +187,14 @@ gold <- c('Butte', "Amador", 'Calaveras', 'El Dorado', 'Mariposa', 'Nevada', 'Pl
 # note that samplePointID is within each PWSID- there may be more than 1 samplePoint for each PWSID
 
 ar %>% 
-  mutate(ar_ugl = DescTools::Winsorize(ar_ugl)) %>% 
-  ggplot(aes(x=ar_ugl, fill = factor(raw)))+
-  # geom_density() +
-  geom_histogram(alpha = .7, bins = 20, position = position_dodge()) +
+  filter(!is.na(WATER_TYPE)) %>% 
+  mutate(as_ugl = DescTools::Winsorize(as_ugl, na.rm = TRUE),
+         period = if_else(year < 2006, 'before FAR', 'after FAR')) %>% 
+  ggplot(aes(x=as_ugl, color = factor(WATER_TYPE)))+
+  geom_density(adjust = 2) +
+  # geom_histogram(alpha = .7, bins = 20, position = position_dodge()) +
   theme_minimal() +
+  facet_grid(rows = vars(period)) +
   scale_fill_brewer(palette = "Set2") 
 
 # a lot of the median were just 2 because that is the non-detectable limit...
@@ -232,15 +237,15 @@ q <- sample(unique(ni$SYSTEM_NO), 6)
 ni <- subset_years(2001, ni, 2021)
 set.seed(5)
 q <- sample(unique(ni$SYSTEM_NO), 6)
-ni %>% 
-  filter(raw == 1, SYSTEM_NO %in% q) %>% 
+ar %>% 
+  filter(year > 1997) %>%
   # filter(CITY=="MADERA") %>%
-  group_by(year, SYSTEM_NO) %>%
-  summarise(mean_n = mean(n_mgl, na.rm = TRUE),
-            median_n = median(n_mgl, na.rm = TRUE),
-            stdd = sd(n_mgl, na.rm = TRUE),
+  group_by(year, WATER_TYPE) %>%
+  summarise(mean_n = mean(as_ugl, na.rm = TRUE),
+            # median_n = median(n_mgl, na.rm = TRUE),
+            stdd = sd(as_ugl, na.rm = TRUE),
             n_obs = n()) %>%
-  ggplot(aes(year, mean_n, color = factor(SYSTEM_NO))) +
+  ggplot(aes(year, mean_n, color = factor(WATER_TYPE))) +
   geom_line(size = 1.5) +
   # geom_point(aes(year, mean_n, color = factor(raw))) +
   geom_vline(xintercept = 2006) +
@@ -378,4 +383,29 @@ ggplot(delivered_as_all_summary, aes(year, mean_as_exposure)) +
   scale_color_brewer(palette = 'Set1') +
   xlim(c(1985, 2022)) 
   
+# use DID to test for arsenic robust effects
+
+ar.reg <- ar_reg %>% 
+  group_by(samplePointID) %>% 
+  mutate(id_as = median(mean_as, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(as_bins = cut_interval(id_as, 10)) %>% 
+  filter(year>2000, year<2021,WATER_TYPE !='W') %>% 
+  mutate(treat = if_else(WATER_TYPE == 'G'&as_bins == '(56.7,63]', 2007, 0), 
+         SYSTEM_NO = as.numeric(SYSTEM_NO),
+         ID = as.numeric(str_remove(samplePointID, '-'))) 
+
+example_attgt <- att_gt(yname = "mean_as",
+                        tname = "year",
+                        idname = "ID",
+                        gname = "treat",
+                        xformla = ~log_hh_income + OwnerTypeC + PrimaryWaterSourceTypeC,
+                        data = ar.reg,
+                        panel = TRUE
+)
+
+ggdid(example_attgt)
+
+df.reg <- df3 %>% drop_na(death.rates, PM25_conc, county_fips, as_bins, tmax, O3_conc, year, state)
+
   

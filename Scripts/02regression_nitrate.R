@@ -1,427 +1,299 @@
 
-# Nitrate regression ------------------------------------------------------
+# Nitrate regression source ------------------------------------------------------
 
-# 2021/10/24
+# 2022/03/15
 # sandysum@ucsb.edu
 
-
 # Load packages -----------------------------------------------------------
-
+rm(list = ls())
 library(tidyverse)
-library(lfe)
+library(fixest)
 library(DescTools)
 library(future.apply)
-
+library(did)
+library(Hmisc)
+library(cowplot)
+source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
+source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
+options(digits=3)
 # Read in data ------------------------------------------------------------
+# home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
+home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
+pdsi <- readRDS(file.path(home, "../Data/drought/pdsi_pws_year.rds"))
+  
+ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+ni <-read_rds(file.path(home, "1int/caswrb_n_reg.rds")) %>% left_join(ind) %>% 
+  left_join(pdsi)
 
-pdsi <- readRDS("../Data/drought/pdsi_pws_monthyear.rds") %>% 
-  mutate(month = as.numeric(str_extract(my, "\\d{2}")),
-         year = as.numeric(str_extract(my, "\\d{4}$"))) %>% 
-  group_by(SABL_PWSID, year) %>% 
-  dplyr::summarise(mean_pdsi = mean(mean_pdsi, na.rm = TRUE))
+ni_drought <- subset_years(2007, pollutant = ni , 2021, 1) %>% 
+  prep_reg() %>% 
+  mutate(b_majority_latino = factor(b_majority_latino),
+         b_low_income = factor(b_low_income)) %>% 
+  filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
+                       'SU', 'ST', 'CU'))
 
-ni <-read_rds(file.path(home, "1int/caswrb_n_1974-2021.rds"))
+ni_split <- ni_drought %>% 
+  split(ni_drought$gw) 
 
-cv_counties <-
-  c(
-    'Butte',
-    'Colusa',
-    'Glenn',
-    'Fresno',
-    'Kern',
-    'Kings',
-    'Madera',
-    'Merced',
-    'Placer',
-    'San Joaquin',
-    'Sacramento',
-    'Shasta',
-    'Solano',
-    'Stanislaus',
-    'Sutter',
-    'Tehama',
-    'Tulare',
-    'Yolo',
-    'Yuba'
-  ) %>%
-  str_to_lower()
-gold <-
-  c(
-    'Butte',
-    "Amador",
-    'Calaveras',
-    'El Dorado',
-    'Mariposa',
-    'Nevada',
-    'Placer',
-    'Plumas',
-    'Sierra',
-    'Tuolumne',
-    'Yuba'
-  ) %>%
-  str_to_lower()
+# table <- ni_drought %>% group_by(SYSTEM_NO, TotalPopulation, b_majority_latino, b_low_income, 
+#                          PrimaryWaterSourceType) %>%
+#   filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
+#                        'SU', 'ST', 'CU')) %>% 
+#   summarize(num_source = length(unique(samplePointID)),
+#             groundwater = sum(str_detect(PrimaryWaterSourceType, 'Groundwater')),
+#             surface = sum(str_detect(PrimaryWaterSourceType, 'Surface')))
+# 
+# table$num_source %>% table()
+#   
+# 
+#   group_by(b_majority_latino) %>%
+#   summarize(
+#     total_pop_served = sum(TotalPopulation[n==1]),
+#     total_pop_served_gw = sum(TotalPopulation[(n==1&gw==1)]),
+#     one_source = sum(n == 1),
+#     one_source_gw = sum(n==1 & gw==1),
+#     n = n()
+#   ) %>%
+#   mutate(frac_one_source = one_source / n)
 
-# Regression at the monitor month year level ------------------------------
+kbl(table, 'latex', booktabs = TRUE)
 
-# 1. Prep data for regression at the monitoring ID level
+# need to find a way to visualize this 
+sys <- ni_drought %>% distinct(b_majority_latino, raw, gw, SYSTEM_NO, samplePointID)
+table(sys$raw, sys$gw, sys$b_majority_latino)
 
-# drop the duplicates! and keep only ground or surface water type. 
+sys %>% 
+  drop_na() %>% 
+  group_by(b_majority_latino, gw, raw) %>% 
+  summarize(n = n())
 
-ni_reg <- ni %>% 
-  distinct(samplePointID, SYSTEM_NO, sampleDate, sampleTime, n_mgl, .keep_all = TRUE) %>% 
-  filter(WATER_TYPE %in% c("G", "S"), year > 1995, !is.na(n_mgl)) %>% 
-  mutate(groundwater = if_else(WATER_TYPE == "G", 1, 0) %>% as.factor(),
-         cv = if_else(countyName %in% cv_counties, 1, 0)) %>% 
-  group_by(groundwater, samplePointID, year, SYSTEM_NO, cv, countyName, 
-           SYSTEM_NAM, STATUS, ZIP, POP_SERV, raw) %>% 
-  summarise(mean_n = mean(n_mgl, na.rm = TRUE),
-            median_n = median(n_mgl, na.rm = TRUE)) %>% 
-  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) 
+ni_drought %>% group_by(year) %>% summarise(mean_d = mean(d, na.rm = TRUE))
 
-# 2. Filter to balanced panel for year 1996 to 2021
+# Final regressions 2022 spring:
+  
+#N GW
 
-# this function subsets to only balanced panels
-ni_reg_balanced <- subset_years(1996, pollutant = ni_reg, 2020, 1)
+source_reg(ni_split[[1]] %>% filter(raw==1), pollutant = 'n')
+# N SW
 
-ni_drought <- ni_reg_balanced %>% 
+source_reg(ni_split[[2]], pollutant = 'n')
+
+# For plotting results ----------------------------------------------------
+
+gw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+            data = ni_split[[1]], weights = ni_split[[1]]$n_spid, vcov = ~SYSTEM_NO)
+
+sum_marginal(gw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+
+sw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+                 data = ni_split[[2]], weights = ni_split[[2]]$n_spid, vcov = ~SYSTEM_NO)
+
+sum_marginal(sw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+# 
+# ni.tr <- ni_drought %>% filter(raw == 0)
+# tw_main <- feols(as.formula(paste0('mean_n ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+#                  data = ni.tr, weights = ni.tr$n_spid, vcov = ~SYSTEM_NO)
+# 
+# sum_marginal(tw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
+
+ls <- map(list(gw_main, sw_main), sum_marginal, 
+          nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n') %>% 
+  bind_rows(.id = 'model') %>%
+  rename(estimate = mean_n, 
+         std.error = se, 
+         p.value = pval, 
+         statistic = t_val) %>% 
+  mutate(term = c(rep('Groundwater', 3), rep('Surface water', 3)),
+         model = int_terms,
+         estimate = estimate*3, 
+         std.error = std.error*3)
+
+outn <- dwplot(ls,
+              vline = geom_vline(
+                xintercept = 0,
+                colour = "grey60",
+                linetype = 2
+              )) + theme_bw() +
+  scale_color_manual(
+    name = ' ',
+    values = c(' ' = 'darkgoldenrod3', 'b_majority_latino' = 'darkturquoise', 'b_low_income' = 'black'),
+    labels = c("All California", "Majority latino", "Low income")
+  ) +
+  scale_x_continuous(n.breaks = 8) +
+  theme(axis.text.y = element_text(size = 14),
+        legend.position = 'none') +
+  xlab("\nNitrate drought response (mg/l)")
+
+save_plot("Plots.spring2022/final_reg_n.png", out, base_asp = 1.4, scale = 1)
+
+# Run all other regression specifications
+source_reg(ni_split[[1]], pollutant = 'n')
+source_reg(ni_split[[2]], pollutant = 'n')
+
+# Simulations -------------------------------------------------------------
+
+
+# Baseline specifications for the effect of drought on nitrates -----------
+# fe is cws x year
+
+# fe = paste(c('samplePointID', 'factor(year)'), collapse = '+')
+fe = 'samplePointID + SYSTEM_NO[year]'
+x <-  paste(c('d', 'd:percent_hispanic', 'd:log_hh_income'), collapse = '+')
+form = as.formula(paste0('mean_n', " ~ ", x,   " | ", fe))
+
+# run optimal model on 3 different dataset with different scenarios
+mod <- feols(fml = form, data = ni_split[[1]], weights = ni_split[[1]]$n_spid)
+
+pdsi %>% group_by(year) %>% summarise(meand = mean(d, na.rm=TRUE)) %>% print(n=50)
+
+mean(pdsi$d, na.rm=TRUE)
+
+newdata.nodrought <- map(2011:2016, function(y) {ni_split[[1]] %>% 
   ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
-  group_by(samplePointID) %>% 
+  select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+  distinct() %>% 
+  mutate(year=y,
+         d=-1.2 )}) %>% bind_rows() %>% 
+  mutate(d = if_else(year==2016, 0.2, d))
+
+newdata.drought <- map(2011:2016, function(y) {
+  x <- pdsi %>% group_by(year) %>% summarise(meand = mean(d, na.rm=TRUE)) %>%
+    filter(year==y) %>% pull(meand)
+  # ceiling(x)
+  ni_split[[1]] %>% 
+    ungroup() %>% 
+    select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+    distinct() %>% 
+    mutate(year=y,
+           d=x+1 )}) %>% bind_rows()
+
+pred0 <- predict(mod, newdata = newdata.nodrought) %>% bind_cols(newdata.nodrought) 
+pred1 <- predict(mod, newdata = newdata.drought) %>% bind_cols(newdata.drought) 
+
+# pred1 <- predict(mod, newdata = newdata.drought) %>% bind_cols(newdata.drought) 
+
+pred <- bind_rows('No drought counterfactual' = pred0, "Actual drought" = pred1, .id = 'Scenario') %>% 
+  rename(predicted.n = `...1`) %>%
+  # select(-year) %>% 
+  # spread(key = d, value = predicted.n) %>%
+  # rename(Predrought = `-1.5`,
+  #        Drought = `1.5`) %>% 
   mutate(
-    d = mean_pdsi, 
-    dlead = lead(d),
-    dlead2 = lead(dlead),
-    dlag1 = lag(d),
-    dlag2 = lag(dlag1),
-    dlag3 = lag(dlag2),
-    dlag4 = lag(dlag3),
-    dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
+    # drought_effect = Drought - Predrought,
+         over10 = as.numeric(predicted.n > 10), 
+         over5 = predicted.n > 5) %>% 
+  select(-percent_hispanic, -log_hh_income) %>% 
+  left_join(ind)
 
-# 
+affected <-pred %>% filter(Scenario == 'Actual drought', over10==1) %>% 
+  select(names(ind)) %>% distinct()
 
-# 2. Interpolate between max gap of two years -----------------------------
+affected %>% group_by(b_majority_latino) %>% 
+  summarise(sum(POP_SERV))
 
-comb <- expand_grid(unique(ni_reg$samplePointID), 1996:2021) 
-names(comb) <- c('samplePointID', 'year')
+wells_failed <- pred %>% drop_na(b_majority_latino) %>% 
+  # filter(over10) %>% 
+  group_by(b_majority_latino, Scenario) %>% 
+  summarise(count = sum(over10)) 
 
-ni_full <- left_join(comb, ni_reg) %>% 
-  group_by(samplePointID) %>% 
-  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+wells_failed <- pred %>% 
+  drop_na(b_majority_latino) %>%
+  group_by(year, b_majority_latino, Scenario) %>% 
+  summarise(count = sum(over10)) %>% 
+  # filter(over10) %>% 
+  ggplot(aes(x = year, y = count, color = factor(Scenario))) +
+  geom_line(size = 1.2, lineend = 'round', alpha = .7) +
+  theme_minimal_hgrid() +
+  facet_wrap(vars(b_majority_latino)) +
+  lims(y = c(70, 90))+
+  labs(y = 'Number of wells > MCL of 10 mg/l \n', x = '\n Year') +
+  scale_colour_manual(" ", values=c("firebrick","blue3"),
+                      breaks=c("Actual drought", "No drought counterfactual"), 
+                      labels=c("Actual drought", "No drought counterfactual"))+
+  theme(axis.text.x = element_text(angle = 45, size = 10, hjust = .9, vjust = .9),
+        plot.background = element_rect(fill = "white", color = NA)) 
 
-# now we interpolate the data
+save_plot("Plots.spring2022/simulations.png", wells_failed, base_asp = 2, scale = 1)
+  
+ggplot(pred, aes(percent_hispanic, median_hh_income)) +
+  geom_point(aes(color= drought_effect), shape = 15, size = 4) +
+  geom_point(data = pred %>% filter(over10_pre), aes(percent_hispanic, median_hh_income), shape = 17, size = 2) +
+  scale_color_distiller(palette = 'YlOrRd', direction = 1, name = 'Severe drought effect') +
+  scale_shape_manual(values = c("Well over regulatory threshold of 10mg/l"=17)) +
+  theme_minimal() +
+  lims(y = c(0, 100))
+  labs(x = '% Latino PWS Area Served', y = 'Median Household Income ($)\n')
+  
 
-ni_int <- ni_py %>% 
-  arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
-         mean_n = na.spline(mean_n, 
-                            maxgap = 2,
-                            na.rm = FALSE),
-         n_obs = sum(is.na(mean_n)))
+pred_long <- pred %>% gather("When", "meanN", Predrought, Drought)
+
+ggplot(pred_long, aes(meanN, color = When)) +
+  geom_density() +
+  theme_minimal() +
+  facet_wrap(facets = vars(b_majority_latino))
 
 
-# Regression at the PWS year level --------------------------------------
+# Do the same for SW ------------------------------------------------------
 
-# Regression PDSI on raw groundwater ----------------------------------------
 
-ni_py <- ni %>%
-  # filter only to groundwater and raw sources
-  # star from year 1984, when there are more data points..
-  filter(WATER_TYPE == "G", raw == 1, year > 1985) %>%
-  mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0),
-         gold = if_else(countyName %in% gold, 1, 0)) %>%
-  group_by(
-    SYSTEM_NO,
-    year,
-    countyName,
-    gold,
-    cv,
-    DISTRICT,
-    CITY,
-    POP_SERV,
-    ZIP,
-    ZIP_EXT,
-    CONNECTION,
-    AREA_SERVE
-  ) %>%
-  # Winsorize as per Shapiro (2021 paper)
-  dplyr::summarise(
-    median_n = median(n_mgl, na.rm = TRUE),
-    mean_n = mean(n_mgl, na.rm = TRUE)
-  ) %>%
-  # keep PWS with at least 10 observations
-  group_by(SYSTEM_NO) %>%
-  filter(n()>5) %>%
-  ungroup() %>%
-  mutate(mean_n = Winsorize(mean_n, probs = c(0, .99))) %>% 
-  filter(cv==1)
 
-# prepping data for interpolation
-comb <- expand_grid(unique(ni_py$SYSTEM_NO), 1986:2021) 
-names(comb) <- c('SYSTEM_NO', 'year')
+# run optimal model on 3 different dataset with different scenarios
+mod <- feols(fml = form, data = ni_split[[2]], weights = ni_split[[2]]$n_spid)
 
-ni_py <- left_join(comb, ni_py) %>% 
-  group_by(SYSTEM_NO) %>% 
-  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
+pdsi %>% group_by(year) %>% summarise(meand = mean(d, na.rm=TRUE)) %>% print(n=50)
 
-# now we interpolate the data
+mean(pdsi$d, na.rm=TRUE)
 
-ni_py_int <- ni_py %>% 
-  arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
-         mean_n = na.spline(mean_n, 
-                             maxgap = 2,
-                             na.rm = FALSE),
-         n_obs = sum(is.na(mean_n)))
+newdata.nodrought <- map(2011:2016, function(y) {ni_split[[2]] %>% 
+    ungroup() %>% 
+    select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+    distinct() %>% 
+    mutate(year=y,
+           d=-1.2 )}) %>% bind_rows() %>% 
+  mutate(d = if_else(year==2016, 0.2, d))
 
-# 137532-118138 = 19394 is the number interpolated....
+newdata.drought <- map(2011:2016, function(y) {
+  x <- pdsi %>% group_by(year) %>% summarise(meand = mean(d, na.rm=TRUE)) %>% print(n=50) %>% 
+    filter(year==y) %>% pull(meand)
+  # ceiling(x)
+  ni_split[[2]] %>% 
+    ungroup() %>% 
+    select(SYSTEM_NO, samplePointID, percent_hispanic, log_hh_income) %>% 
+    distinct() %>% 
+    mutate(year=y,
+           d=x )}) %>% bind_rows()
 
-ni_drought <- ni_py_int %>% 
-  ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
-  group_by(SYSTEM_NO) %>% 
+pred0s <- predict(mod, newdata = newdata.nodrought) %>% bind_cols(newdata.nodrought) 
+pred1s <- predict(mod, newdata = newdata.drought) %>% bind_cols(newdata.drought) 
+
+preds <- bind_rows('No drought counterfactual' = pred0s, "Actual drought" = pred1s, .id = 'Scenario') %>% 
+  rename(predicted.n = `...1`) %>%
+  # select(-year) %>% 
+  # spread(key = d, value = predicted.n) %>%
+  # rename(Predrought = `-1.5`,
+  #        Drought = `1.5`) %>% 
   mutate(
-    d = mean_pdsi, 
-    dlead = lead(d),
-    dlead2 = lead(dlead),
-    dlag1 = lag(d),
-    dlag2 = lag(dlag1),
-    dlag3 = lag(dlag2),
-    dlag4 = lag(dlag3),
-    dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
+    # drought_effect = Drought - Predrought,
+    over10 = as.numeric(predicted.n > 10), 
+    over5 = predicted.n > 5) %>% 
+  select(-percent_hispanic, -log_hh_income) %>% 
+  left_join(ind)
 
-# drop data / pws 
+preds %>% filter(b_majority_latino==1, year==2011)
 
-# run regressions
+wells_failed <- preds %>% group_by(year, b_majority_latino, Scenario) %>% 
+  summarise(count = sum(over10)) %>% 
+ drop_na() %>% 
+  ggplot(aes(x = year, y = count, color = factor(Scenario))) +
+  geom_line() +
+  theme_minimal_hgrid() +
+  facet_wrap(vars(b_majority_latino)) +
+  # lims(y = c(70, 90))+
+  labs(y = 'Number of wells > MCL of 10 mg/l \n', x = '\n Year') +
+  scale_colour_manual(" ", values=c("blue3", "firebrick"),
+                      breaks=c("Actual drought", "No drought counterfactual"), 
+                      labels=c("Actual drought", "No drought counterfactual"))+
+  theme(axis.text.x = element_text(angle = 45, size = 10, hjust = .9, vjust = .9),
+        plot.background = element_rect(fill = "white", color = NA)) 
 
-# can I believe this model???
-
-mod_gw_noCV <-
-  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
-       data = ni_drought)
-mod_gw_CV <-
-  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
-       data = ni_drought)
-
-cv <- plot_reg(mod_gw_CV, contaminant = "n", 
-               main = "Groundwater response to unit increase in PDSI, \nCentral Valley CA only", nleads = 1, nlags = 6)
-noCV <- plot_reg(mod_gw_noCV, contaminant = "n", 
-                       main = "Groundwater response to unit increase in PDSI, \nall other CA", nleads = 1, nlags = 6)
-
-save_plot(filename = "Plots/n_pdsi_coefs_CV.png", plot_grid(cv, noCV, nrow = 1), base_asp = 2, nrow = 1, scale = 2.5)
-
-# mean(ar[(ar$raw==1&ar$WATER_TYPE=="G"),]$ar_ugl, na.rm = TRUE)
-
-.1/8.9
-
-# Regression PDSI on treated water ----------------------------------------
-
-ni_py <- ni %>%
-  # filter only to groundwater and raw sources
-  # star from year 1984, when there are more data points..
-  filter(raw == 0, year > 1985) %>%
-  mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0),
-         gold = if_else(countyName %in% gold, 1, 0)) %>%
-  group_by(
-    SYSTEM_NO,
-    year,
-    countyName,
-    gold,
-    cv,
-    DISTRICT,
-    CITY,
-    POP_SERV,
-    ZIP,
-    ZIP_EXT,
-    CONNECTION,
-    AREA_SERVE
-  ) %>%
-  # Winsorize as per Shapiro (2021 paper)
-  dplyr::summarise(
-    median_n = median(n_mgl, na.rm = TRUE),
-    mean_n = mean(n_mgl, na.rm = TRUE)
-  ) %>%
-  # keep PWS with at least 10 observations
-  group_by(SYSTEM_NO) %>%
-  filter(n()>5) %>%
-  ungroup() %>%
-  mutate(mean_ar = Winsorize(mean_n, probs = c(0, .99)))
-
-# 38 years
-2021-1984 +1
-
-# prepping data for interpolation
-comb <- expand_grid(unique(ni_py$SYSTEM_NO), 1986:2021) 
-names(comb) <- c('SYSTEM_NO', 'year')
-
-ar_py <- left_join(comb, ni_py) %>% 
-  group_by(SYSTEM_NO) %>% 
-  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
-
-# now we interpolate the data
-
-ni_py_int <- ni_py %>% 
-  arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_ar), "true value", "interpolated"),
-         mean_n = na.spline(mean_n, 
-                             maxgap = 2,
-                             na.rm = FALSE),
-         n_obs = sum(is.na(mean_n)))
-
-# what if we drop those with less than 10 observations: 42615
-
-ni_drought <- ni_py_int %>% 
-  ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
-  group_by(SYSTEM_NO) %>% 
-  mutate(
-    d = mean_pdsi, 
-    dlead = lead(d),
-    dlead2 = lead(dlead),
-    dlag1 = lag(d),
-    dlag2 = lag(dlag1),
-    dlag3 = lag(dlag2),
-    dlag4 = lag(dlag3),
-    dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
-
-# if the previous model is to be believed, then there should be no relationship here
-
-mod_tr <-
-  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
-       data = ni_drought)
-
-summary(mod_tr)
-
-# Regression PDSI on surface water ----------------------------------------
-
-ni_py <- ni %>%
-  # filter only to groundwater and raw sources
-  # star from year 1984, when there are more data points..
-  filter(raw == 1, WATER_TYPE == "S", year > 1985) %>%
-  mutate(month = month(sampleDate),
-         cv = if_else(countyName %in% cv_counties, 1, 0),
-         gold = if_else(countyName %in% gold, 1, 0)) %>%
-  group_by(
-    SYSTEM_NO,
-    year,
-    countyName,
-    gold,
-    cv,
-    DISTRICT,
-    CITY,
-    POP_SERV,
-    ZIP,
-    ZIP_EXT,
-    CONNECTION,
-    AREA_SERVE
-  ) %>%
-  # Winsorize as per Shapiro (2021 paper)
-  dplyr::summarise(
-    median_n = median(n_mgl, na.rm = TRUE),
-    mean_n = mean(n_mgl, na.rm = TRUE)
-  ) %>%
-  # keep PWS with at least 10 observations
-  group_by(SYSTEM_NO) %>%
-  filter(n()>5) %>%
-  ungroup() %>%
-  mutate(mean_ar = Winsorize(mean_n, probs = c(0, .99)))
-
-# 38 years
-2021-1984 +1
-
-# prepping data for interpolation
-comb <- expand_grid(unique(ni_py$SYSTEM_NO), 1986:2021) 
-names(comb) <- c('SYSTEM_NO', 'year')
-
-ar_py <- left_join(comb, ni_py) %>% 
-  group_by(SYSTEM_NO) %>% 
-  fill_(c("countyName", "cv", "gold", "DISTRICT" , "CITY", "POP_SERV", "ZIP", "ZIP_EXT", "CONNECTION" ,"AREA_SERVE"), "downup")
-
-# now we interpolate the data
-
-ni_py_int <- ni_py %>% 
-  arrange(SYSTEM_NO, year) %>% 
-  group_by(SYSTEM_NO) %>%
-  mutate(true = if_else(!is.na(mean_n), "true value", "interpolated"),
-         mean_ar = na.spline(mean_n, 
-                             maxgap = 2,
-                             na.rm = FALSE),
-         n_obs = sum(is.na(mean_n)))
-
-# what if we drop those with less than 10 observations: 42615
-
-ni_drought <- ni_py_int %>% 
-  ungroup() %>% 
-  left_join(pdsi %>% mutate(SYSTEM_NO = str_extract(SABL_PWSID, "\\d+")), c("year", "SYSTEM_NO")) %>% 
-  group_by(SYSTEM_NO) %>% 
-  mutate(
-    d = mean_pdsi, 
-    dlead = lead(d),
-    dlead2 = lead(dlead),
-    dlag1 = lag(d),
-    dlag2 = lag(dlag1),
-    dlag3 = lag(dlag2),
-    dlag4 = lag(dlag3),
-    dlag5 = lag(dlag4),
-    dlag6 = lag(dlag5))
-
-# there is not a lot of arsenic in groundwater
-
-mod_s <-
-  felm(mean_n ~ dlead + d + dlag1 + dlag2 + dlag3 + dlag4 + dlag5 + dlag6 | SYSTEM_NO + year | 0 | SYSTEM_NO,
-       data = ni_drought)
-
-summary(mod_s)
-
-# Plot and save -----------------------------------------------------------
-
-
-plist <- map2(list(mod_gw, mod_s, mod_tr), c("Raw groundwater", "Raw surface water", "Treated water"), plot_reg, contaminant = "n", nleads = 1, nlags = 6)
-
-save_plot("Plots/n_pdsi_coefs.png", plot_grid(plotlist = plist, ncol = 1), base_asp = .5, scale = 3.9)
-
-# yay I think it works because I am having year FE and system SE and clustering at the city level
-
-# ni_my <- ni %>% 
-#   filter(!is.na(countyName), WATER_TYPE == "G") %>% 
-#   mutate(month = month(sampleDate)) %>% 
-#   group_by(countyName, year, month, raw) %>%
-#   dplyr::summarise(median_ni = median(n_mgl, na.rm = TRUE),
-#             mean_ni = mean(n_mgl, na.rm = TRUE)) 
-# 
-# ni_my_drought <- ni_my %>% 
-#   mutate(countyName = str_to_lower(countyName)) %>% 
-#   left_join(climdiv_cw, by = c('countyName' = 'NAME')) %>% 
-#   mutate(climdiv = as.integer(climdiv_assigned),
-#          in_cv = factor(countyName%in%cv_counties)) %>% 
-#   left_join(pdsi, by = c("year", "month", "climdiv")) %>% 
-#   mutate(pdsi2 = (pdsi^2)*sign(pdsi))
-# 
-# # visualize
-# 
-# ni_my_drought %>% 
-#   filter(countyName == "tulare", raw == 1) %>% 
-#   ggplot(aes(date, median_ni)) +
-#   geom_line() +
-#   geom_line(aes(date, pdsi), color = 'blue') +
-#   theme_minimal_hgrid() +
-#   scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 0.9))
-# 
-# mod <-
-#   felm(
-#     mean_ni ~ pdsi |
-#       month + countyName |
-#       0 | countyName + year,
-#     data = ni_my_drought %>% filter(raw == 1)
-#   )
-# 
-# summary(mod)  
-
+save_plot("Plots.spring2022/simulations.png", wells_failed, base_asp = 2, scale = 1.2)

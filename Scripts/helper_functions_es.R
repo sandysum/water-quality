@@ -226,66 +226,30 @@ plot_es2 <- function(df, w = c('S'), pollutant = 'as_ugl', by = 'b_majority_lati
 
 
 source_reg <- function(df, pollutant) {
-  # out <- c()
-  if (pollutant == 'n') {
-  m1 <- feols(fml = as.formula("mean_n ~ d | factor(year)"), 
+  
+  m1 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d | factor(year)")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m1)
   
-  m2 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino | factor(year)"), 
+  m2 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino | factor(year)")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   
   # summary(m2)
-  
-  m3 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)"), 
+  m3 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m3)
   
-  m4 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + factor(year)"), 
+  m4 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:log_hh_income + d:percent_ag + d:log_pop_caswrb | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m4)
   
-  m5 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]"), 
+  m5 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:log_hh_income + d:percent_ag + d:log_pop_caswrb | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m5)
   
-  m6 <- feols(fml = as.formula("mean_n ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]"), 
+  m6 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-  # summary(m6)
-  
-  # m7 <- feols(fml = as.formula("mean_n ~ d + d:percent_hispanic + d:log_hh_income | samplePointID + SYSTEM_NO[year]"), 
-  #             data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-  # summary(m7)
-  } else {
-    m1 <- feols(fml = as.formula("mean_as ~ d | factor(year)"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    # summary(m1)
-    
-    m2 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino | factor(year)"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    
-    # summary(m2)
-    
-    m3 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    # summary(m3)
-    
-    m4 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + factor(year)"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    # summary(m4)
-    
-    m5 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:log_hh_income | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    # summary(m5)
-    
-    m6 <- feols(fml = as.formula("mean_as ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]"), 
-                data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    summary(m6)
-    
-    # m7 <- feols(fml = as.formula("mean_as ~ d + d:percent_hispanic + d:log_hh_income | samplePointID + SYSTEM_NO[year]"), 
-    #             data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-    # summary(m7)
-  }
+  summary(m6)
   
 etable(m1, m2, m3, m4, m5, m6, tex = TRUE,
        digits = 3, order = c('d$', 'd:'), drop = 'Intercept')
