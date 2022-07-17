@@ -11,11 +11,12 @@ library(did)
 library(Hmisc)
 library(cowplot)
 library(corrplot)
+library(gtsummary)
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
 options(digits=3)
 # Read in data ------------------------------------------------------------
-home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
+# home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 pdsi <- readRDS(file.path(home, "../Data/drought/pdsi_pws_year.rds"))
 
@@ -42,8 +43,8 @@ facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv")) %>%
   # filter(samplePointID %in% ni_drought$samplePointID) %>% 
   left_join(ind, by =c('PWSID'='WaterSystemNo'))
 
-df <- facilities %>% 
-  mutate(prop_latino = cut_interval(percent_hispanic, 4)) %>% 
+sum.df <- facilities %>% 
+  mutate(prop_latino = cut_interval(percent_hispanic, 2)) %>% 
   group_by(SYSTEM_NO, prop_latino, agArea, median_hh_income, percent_hispanic,
            percent_non_white, percent_not_fluent_english, percent_low_edu, POP_SERV, percent_ag,
            OwnerType, PrimaryWaterSourceType, ResidentialPopulation, StateWaterSystemTypeC, FeeCodeDescription) %>% 
@@ -55,9 +56,7 @@ df <- facilities %>%
             number_tp = sum(FACILITY_TYPE_CODE == 'TP')) %>% 
   mutate(prop_latino = forcats::fct_explicit_na(prop_latino))
 
-df %>% ggplot(aes(number_source_treated))
-
-df %>% ungroup() %>% select(-1) %>% tbl_summary(
+sum.df %>% ungroup() %>% select(-1) %>% tbl_summary(
   by = prop_latino,
   statistic = list(
     all_continuous() ~ "{mean}, {median} ({min}, {max})",
@@ -133,9 +132,19 @@ vars <- ind %>% select(agArea, percent_hispanic, median_hh_income,
                        percent_low_edu, POP_SERV,ag_wells_n, ag_wells_depth_total,
                        avg_percent_clay, avg_percent_ph)
 
+vars_crops <- ind %>% dplyr::select(percent_hispanic, matches('percent_ag_'))
+
 res <- cor(vars, use = 'complete.obs')
 corrplot(res, type = "upper", order = "hclust", 
          tl.col = "black", tl.srt = 45)
 
 library("PerformanceAnalytics")
-chart.Correlation(vars, histogram=TRUE, pch=19)
+chart.Correlation(vars_crops, histogram=TRUE, pch=19)
+
+#### 
+
+ni_drought %>% group_by(b_majority_latino) %>% 
+  summarise(number_sys = length(unique(SYSTEM_NO)),
+            number_source = length(unique(samplePointID)),
+            number_gw_source = sum(type=='GW', na.rm = TRUE),
+            number_tp = sum(FACILITY_TYPE_CODE == 'TP', na.rm = TRUE))

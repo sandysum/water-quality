@@ -13,21 +13,23 @@ library(future.apply)
 library(did)
 library(Hmisc)
 library(cowplot)
-source("G:/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
-source("G:/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
+# source("G:/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
+# source("G:/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
 options(digits=3)
 # Read in data ------------------------------------------------------------
-home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
+# home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 pdsi <- readRDS(file.path(home, "../Data/drought/pdsi_pws_year.rds"))
   
 ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
+
 # wells is cumulative number of wells and depth sum and cumulative sum of wells
 wells <- readRDS(file.path(home,"1int/pws_wells_panel.rds")) %>% 
   mutate(SYSTEM_NO = str_extract(SYSTEM_NO, '\\d+'), 
-         wells = wells + 1) 
+         wells = wells + 1,
+         ) 
 
 ni <-read_rds(file.path(home, "1int/caswrb_n_reg.rds")) %>% left_join(ind) %>% 
   left_join(pdsi) %>% 
@@ -39,7 +41,7 @@ facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv")) %>%
   # and this correspond to the samplePointID in the CA SWRB
   mutate(samplePointID = paste0(str_extract(PWSID, '\\d+'), '-', STATE_FACILITY_ID),
          type = if_else(str_detect(WATER_TYPE_CODE, 'G'), 'GW', "SW")) %>% 
-  select(samplePointID, FACILITY_TYPE_CODE, type)
+  dplyr::select(samplePointID, FACILITY_TYPE_CODE, type)
 
 ni_drought <- subset_years(2007, pollutant = ni , 2021, 1) %>% 
   prep_reg() %>% 
@@ -47,197 +49,46 @@ ni_drought <- subset_years(2007, pollutant = ni , 2021, 1) %>%
          b_low_income = factor(b_low_income)) %>% 
   filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
                        'SU', 'ST', 'CU')) %>% 
-  left_join(facilities) %>% 
-  mutate(ag_wells_depth_total = ag_wells_depth_total/100,
-         depth_sum = scale(depth_sum, center = TRUE))
+  left_join(facilities) %>%
+  mutate(ag_wells_depth_total = ag_wells_depth_total / 100,
+         depth_sum_km = depth_sum / 1000) %>%
+  replace_na(list(depth_sum_km = 1, wells = 1))
 
-ni_split <- ni_drought %>% 
-  split(ni_drought$type) 
+# ni_split <- ni_drought %>% 
+#   split(ni_drought$type) 
+
+ni_tp <- ni_drought %>% filter(FACILITY_TYPE_CODE=='TP')
 
 # Final table before leaving for alaska: 2022-07-15 ------------------
+# effect on raw intake wells
 
+#1) for all water source
+df <- ni_drought
+
+#2) only for intake well
 df <- ni_split[[1]] %>% filter(FACILITY_TYPE_CODE == 'WL')
-pollutant = 'n'
-m1 <-
-  feols(
-    fml = as.formula(paste0('mean_', pollutant, " ~ d | factor(year)")),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
 
-summary(m1)
+#3) only for treatment plant -- this one has the result I was EXPECTING to see.
+df <- ni_tp
 
-m2 <-
-  feols(
-    fml = as.formula(
-      paste0('mean_', pollutant, " ~ d + d:b_majority_latino | factor(year)")
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m2)
-
-# controlling for unobserved trends
-
-m3 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + wells + log_hh_income + avg_percent_ph + log_pop_caswrb + b_ag_area + avg_percent_clay | RegulatingAgency + factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m3)
-
-m32 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:wells + d:log_hh_income + d:avg_percent_ph + d:log_pop_caswrb + d:b_ag_area | RegulatingAgency + factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m32)
-
-m31 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:wells + d:log_hh_income + d:avg_percent_ph + d:log_pop_caswrb + d:b_ag_area +
-        wells + log_hh_income + avg_percent_ph + log_pop_caswrb + b_ag_area | RegulatingAgency + factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m31)
-
-m4 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:percent_ag + d:I(percent_ag^2)+ d:log_pop_caswrb + d:b_low_income + wells | SYSTEM_NO[year] + samplePointID"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m4)
-
-etable(m1, m2, m3, m32, m31, m4, tex = TRUE,
-       digits = 3, order = c('d$', 'd:'), drop = 'Intercept')
-
-m2 <-
-  feols(
-    fml = as.formula(
-      paste0('mean_', pollutant, " ~ d + d:b_majority_latino | RegulatingAgency + factor(year)")
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m2)
-
-# controlling for all other variables that could be related to
-m3 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + wells + log_hh_income + avg_percent_ph + log_pop_caswrb + b_ag_area + avg_percent_clay | factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m3)
-
-m32 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:wells + d:log_hh_income + d:avg_percent_ph + d:log_pop_caswrb + d:percent_ag | factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m32)
-
-m31 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:wells + d:log_hh_income + d:avg_percent_ph + d:log_pop_caswrb + d:percent_ag +
-        wells + log_hh_income + avg_percent_ph + log_pop_caswrb + percent_ag | factor(year)"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m31)
-m5 <-
-  feols(
-    fml = as.formula(
-      paste0(
-        'mean_',
-        pollutant,
-        " ~ d + d:b_majority_latino + d:b_ag_area + d:avg_percent_ph + d:avg_percent_clay + d:wells + d:log_pop_caswrb + d:b_low_income | SYSTEM_NO[year] + samplePointID"
-      )
-    ),
-    data = df,
-    weights = df$n_spid,
-    vcov = ~ SYSTEM_NO
-  )
-
-summary(m5)
-
-m6 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]")), 
-            data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-summary(m6)
-
-etable(m1, m2, m3, m41, m4, m5, tex = TRUE,
-       digits = 3, order = c('d$', 'd:'), drop = 'Intercept')
+# but not all systems has a treatment plant. in fact, 1315 of them do not have. what's going on?
 
 ## Trying to explain WHY majority latino gets hit by drought so bad.
 
-
 ni_drought %>% group_by(year) %>% summarise(mean_d = mean(d, na.rm = TRUE))
+
+
+# 2022-07-15 investigating the number of sys with ml that has and  --------
+df <- ni_drought %>% filter(FACILITY_TYPE_CODE == 'TP')
+tp_sys <- ind %>% filter(SYSTEM_NO %in% df$SYSTEM_NO)
+tp_sys$POP_SERV %>% sum(na.rm = TRUE)
+#[1] 14108624 ~ 36% of CA
+tp_sys$b_majority_latino %>% table()
+no_tp_sys <- ind %>% filter(SYSTEM_NO %in% ni_drought$SYSTEM_NO & !(SYSTEM_NO %in% tp_sys$SYSTEM_NO))
+
+no_tp_sys$POP_SERV %>% sum(na.rm = TRUE)
+
+no_tp_sys$b_majority_latino %>% table()
 
 ###################### 2022 SPRING
 
