@@ -10,11 +10,12 @@ library(future.apply)
 library(did)
 library(Hmisc)
 library(cowplot)
+library(corrplot)
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_models.R")
 source("/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/water-quality/Scripts/helper_functions_es.R")
 options(digits=3)
 # Read in data ------------------------------------------------------------
-# home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
+home <- "G:/My Drive/0Projects/1Water/2Quality/Data/"
 home <- "/Volumes/GoogleDrive/My Drive/0Projects/1Water/2Quality/Data/"
 pdsi <- readRDS(file.path(home, "../Data/drought/pdsi_pws_year.rds"))
 
@@ -38,6 +39,56 @@ facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv")) %>%
   # to match facilities dataset from SWDA, we have to paste the numerical value of PWSID to the state facility id 
   # and this correspond to the samplePointID in the CA SWRB
   mutate(samplePointID = paste0(str_extract(PWSID, '\\d+'), '-', STATE_FACILITY_ID)) %>% 
+  # filter(samplePointID %in% ni_drought$samplePointID) %>% 
+  left_join(ind, by =c('PWSID'='WaterSystemNo'))
+
+df <- facilities %>% 
+  mutate(prop_latino = cut_interval(percent_hispanic, 4)) %>% 
+  group_by(SYSTEM_NO, prop_latino, agArea, median_hh_income, percent_hispanic,
+           percent_non_white, percent_not_fluent_english, percent_low_edu, POP_SERV, percent_ag,
+           OwnerType, PrimaryWaterSourceType, ResidentialPopulation, StateWaterSystemTypeC, FeeCodeDescription) %>% 
+  filter(StateWaterSystemTypeC %in% c('C', "NCNT")) %>% 
+  summarise(number_source = length(unique(samplePointID)),
+            number_source_treated = sum(IS_SOURCE_TREATED_IND=='Y'),
+            number_gw_source = sum(WATER_TYPE_CODE%in%c('GU', 'GW')),
+            number_sw_source = sum(WATER_TYPE_CODE%in%c('SW')),
+            number_tp = sum(FACILITY_TYPE_CODE == 'TP')) %>% 
+  mutate(prop_latino = forcats::fct_explicit_na(prop_latino))
+
+df %>% ggplot(aes(number_source_treated))
+
+df %>% ungroup() %>% select(-1) %>% tbl_summary(
+  by = prop_latino,
+  statistic = list(
+    all_continuous() ~ "{mean}, {median} ({min}, {max})",
+    all_categorical() ~ "{n} ({p}%)"
+  )
+)
+df %>% describeBy(group = 'prop_latino')
+
+
+# Investigate the number of people served by each owner type --------------
+
+# Proportionate no difference in governnance or owner type y percent latino
+
+pop_served_by_owner <- df %>% ungroup %>% dplyr::select(prop_latino, OwnerType, POP_SERV) %>% 
+  group_by(prop_latino, OwnerType) %>% 
+  dplyr::summarize(pop_served = sum(POP_SERV, na.rm = TRUE)) %>% 
+  filter(prop_latino != '(Missing)')
+
+pop_served_by_owner %>% ggplot(aes(x = prop_latino, y = pop_served, fill = OwnerType)) +
+  geom_bar(position = "dodge", stat = "identity")
+
+
+# Repeat making summary stats for all PWS? --------
+
+# Not only for those in the dataset
+
+facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv")) %>% 
+  filter(PWSID %in% ni$SABL_PWSID, FACILITY_ACTIVITY_CODE == 'A') %>% 
+  # to match facilities dataset from SWDA, we have to paste the numerical value of PWSID to the state facility id 
+  # and this correspond to the samplePointID in the CA SWRB
+  mutate(samplePointID = paste0(str_extract(PWSID, '\\d+'), '-', STATE_FACILITY_ID)) %>% 
   filter(samplePointID %in% ni_drought$samplePointID) %>% 
   left_join(ind, by =c('PWSID'='WaterSystemNo'))
 
@@ -45,7 +96,8 @@ df <- facilities %>%
   mutate(prop_latino = cut_interval(percent_hispanic, 4)) %>% 
   group_by(SYSTEM_NO, prop_latino, agArea, median_hh_income, percent_hispanic,
            percent_non_white, percent_not_fluent_english, percent_low_edu, POP_SERV, percent_ag,
-           OwnerType, PrimaryWaterSourceType, ResidentialPopulation, FACILITY_TYPE_CODE, FeeCodeDescription) %>% 
+           OwnerType, PrimaryWaterSourceType, ResidentialPopulation, StateWaterSystemTypeC, FeeCodeDescription) %>% 
+  filter(StateWaterSystemTypeC %in% c('C', "NCNT")) %>% 
   summarise(number_source = length(unique(samplePointID)),
             number_source_treated = sum(IS_SOURCE_TREATED_IND=='Y'),
             number_gw_source = sum(WATER_TYPE_CODE%in%c('GU', 'GW')),
@@ -57,7 +109,33 @@ df %>% ggplot(aes(number_source_treated))
 
 df %>% ungroup() %>% select(-1) %>% tbl_summary(by = prop_latino, 
                                                 statistic = list(all_continuous() ~ "{mean}, {median} ({min}, {max})", 
-                                                all_categorical() ~ "{n} ({p}%)"))
+                                                                 all_categorical() ~ "{n} ({p}%)"))
 df %>% describeBy(group = 'prop_latino')
 
 
+# Investigate the number of people served by each owner type --------------
+
+pop_served_by_owner <- df %>% ungroup %>% dplyr::select(prop_latino, OwnerType, POP_SERV) %>% 
+  group_by(prop_latino, OwnerType) %>% 
+  dplyr::summarize(pop_served = sum(POP_SERV, na.rm = TRUE)) %>% 
+  filter(prop_latino != '(Missing)')
+
+
+
+pop_served_by_owner %>% ggplot(aes(x = prop_latino, y = pop_served, fill = OwnerType)) +
+  geom_bar(position = "dodge", stat = "identity")
+
+names(ind)
+# covariance plot in R
+
+vars <- ind %>% select(agArea, percent_hispanic, median_hh_income,
+                       percent_spanish_speaker, percent_not_fluent_english,
+                       percent_low_edu, POP_SERV,ag_wells_n, ag_wells_depth_total,
+                       avg_percent_clay, avg_percent_ph)
+
+res <- cor(vars, use = 'complete.obs')
+corrplot(res, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+library("PerformanceAnalytics")
+chart.Correlation(vars, histogram=TRUE, pch=19)

@@ -25,24 +25,39 @@ source("Scripts/helper_functions_models.R")
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 
 ar_reg <-read_rds(file.path(home, "1int/caswrb_ar_reg.rds"))
+wells <- readRDS(file.path(home,"1int/pws_wells_panel.rds")) %>% 
+  mutate(SYSTEM_NO = str_extract(SYSTEM_NO, '\\d+'), 
+         wells = wells + 1) 
 
 pdsi <- readRDS("../Data/drought/pdsi_pws_year.rds") 
 ind <- readRDS(file.path(home, "1int/pws_ind.rds"))
 loc <- read_xlsx(file.path(home, "ca_water_qual/siteloc.xlsx")) %>% 
   mutate(STATUS = str_to_upper(STATUS))
+
 as <- read_rds(file.path(home, "1int/caswrb_ar_reg.rds")) %>% left_join(ind) %>% 
   left_join(pdsi) %>% 
-  left_join(loc, by =c('samplePointID' = 'PRI_STA_C', "SYSTEM_NO"))
+  left_join(loc, by =c('samplePointID' = 'PRI_STA_C', "SYSTEM_NO")) %>% 
+  left_join(wells)
+
+facilities <- read_csv(file.path(home, "SDWA-DL/SDWA_FACILITIES.csv")) %>% 
+  filter(PWSID %in% ni$SABL_PWSID, FACILITY_ACTIVITY_CODE == 'A') %>% 
+  # to match facilities dataset from SWDA, we have to paste the numerical value of PWSID to the state facility id 
+  # and this correspond to the samplePointID in the CA SWRB
+  mutate(samplePointID = paste0(str_extract(PWSID, '\\d+'), '-', STATE_FACILITY_ID),
+         type = if_else(str_detect(WATER_TYPE_CODE, 'G'), 'GW', "SW")) %>% 
+  select(samplePointID, FACILITY_TYPE_CODE, type)
 
 as_drought <- subset_years(2008, pollutant = as, 2021, 1) %>% 
   prep_reg() %>% 
   mutate(b_majority_latino = factor(b_majority_latino),
          b_low_income = factor(b_low_income)) %>% 
   filter(STATUS %in% c('AT', 'AR', 'AU', 'CM', 'CR', 'CT', 'DT', 'DR', 'SR',
-                       'SU', 'ST', 'CU'))
+                       'SU', 'ST', 'CU')) %>% left_join(facilities) %>% 
+  mutate(ag_wells_depth_total = ag_wells_depth_total/100,
+         depth_sum = scale(center = TRUE))
 
 as_split <- as_drought %>% 
-  split(as_drought$gw)
+  split(as_drought$type) 
 
 source_reg(as_split[[1]], pollutant = 'as')
 source_reg(as_split[[2]], pollutant = 'as')
@@ -66,12 +81,25 @@ save_plot("Google Drive/My Drive/0Projects/1Water/2Quality/water-quality/Plots/p
 
 # For plotting results ----------------------------------------------------
 
-gw_main <- feols(as.formula(paste0('mean_as ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
-                 data = as_split[[1]], weights = as_split[[1]]$n_spid, vcov = ~SYSTEM_NO)
+gw_main <- feols(
+  as.formula(
+    paste0(
+      'mean_as ~ d ',
+      '+ d:b_majority_latino + d:b_low_income + d:wells + d:percent_ag',
+      '| samplePointID + SYSTEM_NO[year]'
+    )
+  ),
+  data = as_split[[1]],
+  weights = as_split[[1]]$n_spid,
+  vcov = ~ SYSTEM_NO
+)
 
-# sum_marginal(gw_main, nlags=0, int_terms = c('b_majority_latino', 'b_low_income'), pollutant = 'n')
 
-sw_main <- feols(as.formula(paste0('mean_as ~ d ', ' + d:b_majority_latino + d:b_low_income', '| samplePointID + SYSTEM_NO[year]')), 
+sw_main <- feols(as.formula(  paste0(
+  'mean_as ~ d ',
+  '+ d:b_majority_latino + d:b_low_income + d:wells + d:percent_ag',
+  '| samplePointID + SYSTEM_NO[year]'
+)), 
                  data = as_split[[2]], weights = as_split[[2]]$n_spid, vcov = ~SYSTEM_NO)
 
 

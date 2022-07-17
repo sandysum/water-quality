@@ -141,3 +141,4 @@ ggplot(out, aes(percent_hispanic, percent_spanish_speaker)) +
   geom_point() +
   geom_smooth() +
   theme_classic()
+  geom_density()

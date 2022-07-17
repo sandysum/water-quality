@@ -239,15 +239,15 @@ source_reg <- function(df, pollutant) {
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m3)
   
-  m4 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:log_hh_income + d:percent_ag + d:log_pop_caswrb | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)")), 
+  m4 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:log_hh_income + d:percent_ag + d:ag_wells_n + d:log_pop_caswrb | log_hh_income + log_pop_caswrb + percent_ag + avg_percent_clay + RegulatingAgency + factor(year)")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
-  # summary(m4)
+  summary(m4)
   
   m5 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:log_hh_income + d:percent_ag + d:log_pop_caswrb | log_hh_income + log_pop_caswrb + percent_ag+avg_percent_clay + RegulatingAgency + SYSTEM_NO[year]")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   # summary(m5)
   
-  m6 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:b_low_income | samplePointID + SYSTEM_NO[year]")), 
+  m6 <- feols(fml = as.formula(paste0('mean_', pollutant, " ~ d + d:b_majority_latino + d:b_low_income + d:ag_wells_n | samplePointID + SYSTEM_NO[year]")), 
               data = df, weights = df$n_spid, vcov = ~SYSTEM_NO)
   summary(m6)
   
@@ -255,4 +255,3 @@ etable(m1, m2, m3, m4, m5, m6, tex = TRUE,
        digits = 3, order = c('d$', 'd:'), drop = 'Intercept')
   
 }
-
